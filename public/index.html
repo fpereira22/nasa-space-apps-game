@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Control en Tierra — U.S.S. Aether (Open MCT)</title>
+    <link rel="icon" type="image/png" href="/openmct/favicons/favicon-32x32.png" sizes="32x32" />
+
+    <!-- Open MCT (servido desde node_modules/openmct/dist por server.js) -->
+    <script src="/openmct/openmct.js"></script>
+
+    <!-- Plugins propios de la nave -->
+    <script src="/plugins/dictionary-plugin.js"></script>
+    <script src="/plugins/historical-telemetry-plugin.js"></script>
+    <script src="/plugins/realtime-telemetry-plugin.js"></script>
+    <script src="/plugins/limits-plugin.js"></script>
+  </head>
+  <body>
+    <script>
+      const SECONDS = 1000;
+      const MINUTES = 60 * SECONDS;
+
+      openmct.setAssetPath('/openmct');
+
+      // Plugins base de Open MCT
+      openmct.install(openmct.plugins.LocalStorage()); // guarda layouts creados por el usuario
+      openmct.install(openmct.plugins.MyItems());
+      openmct.install(openmct.plugins.UTCTimeSystem());
+      openmct.install(openmct.plugins.Espresso()); // tema oscuro
+      openmct.install(openmct.plugins.DisplayLayout());
+      openmct.install(openmct.plugins.LADTable());
+      openmct.install(openmct.plugins.Notebook());
+      openmct.install(openmct.plugins.SummaryWidget());
+      openmct.install(openmct.plugins.WebPage()); // para mostrar el manual dentro de Open MCT
+      openmct.install(openmct.plugins.Clock({ enableClockIndicator: true }));
+
+      // Conductor de tiempo: arranca en tiempo real mostrando los últimos 5 minutos
+      // (una partida dura 3 min). También permite cambiar a modo histórico.
+      openmct.install(
+        openmct.plugins.Conductor({
+          menuOptions: [
+            {
+              name: 'Tiempo real',
+              timeSystem: 'utc',
+              clock: 'local',
+              clockOffsets: { start: -5 * MINUTES, end: 10 * SECONDS },
+              presets: [
+                { label: '15 minutos', bounds: { start: -15 * MINUTES, end: 10 * SECONDS } },
+                { label: '5 minutos', bounds: { start: -5 * MINUTES, end: 10 * SECONDS } },
+                { label: '3 minutos (1 partida)', bounds: { start: -3 * MINUTES, end: 10 * SECONDS } }
+              ]
+            },
+            {
+              name: 'Histórico',
+              timeSystem: 'utc',
+              bounds: { start: Date.now() - 30 * MINUTES, end: Date.now() }
+            }
+          ]
+        })
+      );
+
+      // Telemetría de la U.S.S. Aether
+      openmct.install(AetherDictionaryPlugin());
+      openmct.install(AetherHistoricalTelemetryPlugin());
+      openmct.install(AetherRealtimeTelemetryPlugin());
+      openmct.install(AetherLimitsPlugin());
+
+      openmct.start();
+    </script>
+  </body>
+</html>

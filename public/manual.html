@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Manual de Reparación — U.S.S. Aether</title>
+    <style>
+        :root {
+            --bg: #0b1120;
+            --panel: #111a2e;
+            --panel-2: #0f172a;
+            --border: #24324d;
+            --text: #cbd5e1;
+            --muted: #8a99b3;
+            --accent: #22d3ee;
+            --amber: #fbbf24;
+            --amber-bg: rgba(251, 191, 36, 0.08);
+            --amber-border: rgba(251, 191, 36, 0.45);
+            --green: #34d399;
+            --rose: #fb7185;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--text);
+            font: 15px/1.55 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+        }
+        main { max-width: 820px; margin: 0 auto; padding: 24px 16px 48px; }
+        header { border-bottom: 1px solid var(--amber-border); padding-bottom: 12px; margin-bottom: 20px; }
+        h1 { margin: 0; color: var(--amber); font-size: 1.35rem; letter-spacing: 0.04em; }
+        header p { margin: 4px 0 0; color: var(--muted); font-size: 0.85rem; }
+        h2 { margin: 0 0 8px; color: var(--accent); font-size: 1.05rem; letter-spacing: 0.03em; }
+        section {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 14px 16px;
+            margin-bottom: 14px;
+        }
+        ul, ol { margin: 6px 0; padding-left: 22px; }
+        li { margin: 4px 0; }
+        strong { color: #f1f5f9; }
+        .sym { color: var(--amber); font-weight: 700; letter-spacing: 0.1em; }
+        .muted { color: var(--muted); }
+        .ground {
+            background: var(--amber-bg);
+            border: 1px solid var(--amber-border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            margin: 8px 0;
+        }
+        .ground::before { content: "📡 SOLO CONTROL EN TIERRA · "; color: var(--amber); font-weight: 700; font-size: 0.8rem; }
+        .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 8px; }
+        .grid > div { background: var(--panel-2); border: 1px solid var(--border); border-radius: 8px; padding: 8px 12px; }
+        .grid .yes { color: var(--green); font-weight: 700; }
+        .grid .no { color: var(--rose); font-weight: 700; }
+        .steps li::marker { color: var(--amber); font-weight: 700; }
+        @media (max-width: 560px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+</head>
+<body>
+<main>
+    <header>
+        <h1>MANUAL DE REPARACIÓN DE EMERGENCIA v5.0</h1>
+        <p>U.S.S. Aether · Solo para el equipo de control en tierra. No se lo muestres al astronauta.</p>
+    </header>
+
+    <section>
+        <h2>CÓMO JUGAR (LÉELO PRIMERO)</h2>
+        <ol class="steps">
+            <li>El astronauta ve el tablero con 4 módulos pero <strong>no tiene este manual</strong>. Tú tienes el manual pero <strong>no ves el tablero</strong>. Solo pueden hablar.</li>
+            <li>Pídele que te lea el <strong>N° de serie</strong> y la <strong>cantidad de baterías</strong> (arriba a la derecha del tablero). Casi todas las reglas los usan.</li>
+            <li>En la <strong>Consola del experto</strong> (Open MCT) hay datos que <strong>solo tú puedes ver</strong>: la temperatura del reactor y la polaridad de fase. Las reglas marcadas con 📡 dependen de ellos.</li>
+            <li>Hay 3 minutos. Cada error es un strike, y con 3 strikes la nave explota.</li>
+        </ol>
+    </section>
+
+    <section>
+        <h2>M1 // CABLES DE ENERGÍA (4 cables)</h2>
+        <p>Pide los colores de los 4 cables, de arriba hacia abajo. Aplica la <strong>primera</strong> regla que se cumpla:</p>
+        <ul>
+            <li>Si hay <strong>más de un cable rojo</strong> y el último dígito del N° de serie es <strong>impar</strong>, corta el <strong>último cable rojo</strong>.</li>
+            <li>Si no, y el último cable es <strong>amarillo</strong> y no hay cables rojos, corta el <strong>primer cable</strong>.</li>
+            <li>Si no, y hay exactamente <strong>un cable azul</strong>, corta el <strong>primer cable</strong>.</li>
+            <li>En cualquier otro caso, corta el <strong>segundo cable</strong>.</li>
+        </ul>
+    </section>
+
+    <section>
+        <h2>M2 // BOTÓN DEL NÚCLEO</h2>
+        <div class="ground">
+            Antes de que el astronauta toque el botón, mira la <strong>Temperatura del reactor</strong>.
+            Si está en <strong>1400 K o más</strong> (se ve amarilla o roja en la consola), ignora el resto de este módulo:
+            <strong>pulsa y suelta inmediatamente</strong>. Cuenta la temperatura del momento en que lo presiona.
+        </div>
+        <p>Si el reactor está bajo 1400 K: cuando el botón es <strong>azul</strong> y dice <strong>"ABORTAR"</strong>, o dice <strong>"DETONAR"</strong> y hay <strong>más de 1 batería</strong>, mantén pulsado el botón y mira la tira de luz lateral:</p>
+        <ul>
+            <li><strong>Luz azul:</strong> suelta cuando el temporizador tenga un <strong>4</strong> en cualquier posición.</li>
+            <li><strong>Luz amarilla:</strong> suelta cuando el temporizador tenga un <strong>5</strong> en cualquier posición.</li>
+            <li><strong>Cualquier otro color:</strong> suelta cuando el temporizador tenga un <strong>1</strong> en cualquier posición.</li>
+        </ul>
+        <p class="muted">En cualquier otro caso (por ejemplo botón blanco, o "DETONAR" con 1 batería), pulsa y suelta inmediatamente.</p>
+    </section>
+
+    <section>
+        <h2>M3 // ESCUDO TÉRMICO (secuencia de luces)</h2>
+        <p>El escudo repite una secuencia de 3 destellos. Por cada destello, el astronauta presiona el color equivalente, según si el N° de serie tiene una <strong>vocal</strong>:</p>
+        <div class="grid">
+            <div>
+                <span class="yes">CON vocal en el serial</span><br>
+                Rojo → <strong>Azul</strong><br>
+                Azul → <strong>Rojo</strong><br>
+                Verde → <strong>Amarillo</strong><br>
+                Amarillo → <strong>Verde</strong>
+            </div>
+            <div>
+                <span class="no">SIN vocal en el serial</span><br>
+                Rojo → <strong>Azul</strong><br>
+                Azul → <strong>Amarillo</strong><br>
+                Verde → <strong>Verde</strong><br>
+                Amarillo → <strong>Rojo</strong>
+            </div>
+        </div>
+        <p class="muted">Si se equivoca, la secuencia vuelve a empezar desde el primer destello.</p>
+    </section>
+
+    <section>
+        <h2>M4 // SINTONIZACIÓN DE FASE</h2>
+        <p>Pide la frecuencia que muestra la pantalla y presiona los 3 símbolos en este orden:</p>
+        <ul>
+            <li><strong>Menos de 300 Hz:</strong> <span class="sym">Ω → Δ → Ψ</span></li>
+            <li><strong>Entre 300 y 600 Hz:</strong> <span class="sym">Σ → Ω → Θ</span></li>
+            <li><strong>Más de 600 Hz:</strong> <span class="sym">Ψ → Θ → Δ</span></li>
+        </ul>
+        <div class="ground">
+            Mira la <strong>Polaridad de fase</strong>. Si es <strong>NEGATIVA</strong>, presiona los mismos 3 símbolos
+            <strong>en orden inverso</strong> (por ejemplo Ψ → Δ → Ω en vez de Ω → Δ → Ψ). Si es POSITIVA, usa el orden normal.
+        </div>
+    </section>
+
+    <section>
+        <h2>SIN SERVIDOR</h2>
+        <p class="muted">Si el tablero se abrió como archivo, sin <code>npm start</code>, no hay telemetría. En ese caso ignora las reglas 📡: la polaridad siempre es POSITIVA y la temperatura no cuenta.</p>
+    </section>
+</main>
+</body>
+</html>

@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="es">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio y chat con el astronauta</title>
+    <link rel="icon" href="data:,">
+    <!--
+      Chat de control en tierra. Se muestra dentro de Open MCT (U.S.S. Aether -> Chat con el astronauta,
+      y en la Consola del experto), pero también funciona abierto directo: http://<IP>:8080/chat.html
+      Habla con server.js por ws /chat; el astronauta escribe desde el tablero.
+    -->
+    <style>
+        :root {
+            --bg: #0b1120;
+            --panel: #111a2e;
+            --border: #24324d;
+            --text: #cbd5e1;
+            --muted: #8a99b3;
+            --astro: #22d3ee;
+            --ground: #fbbf24;
+            --ok: #34d399;
+            --bad: #f87171;
+        }
+        * { box-sizing: border-box; }
+        html, body { height: 100%; margin: 0; }
+        body {
+            background: var(--bg);
+            color: var(--text);
+            font: 13px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+            display: flex;
+            flex-direction: column;
+        }
+        header {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--border);
+            background: var(--panel);
+        }
+        header strong { color: var(--ground); letter-spacing: 0.04em; font-size: 12px; flex: 1; }
+        #status { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 5px; }
+        #dot { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+        #dot.on { background: var(--ok); }
+        #dot.off { background: var(--bad); }
+        #name {
+            width: 100%;
+            margin: 0;
+            padding: 6px 10px;
+            border: 0;
+            border-bottom: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font: inherit;
+            font-size: 12px;
+        }
+        #log { flex: 1; overflow-y: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+        .msg { word-wrap: break-word; }
+        .msg .meta { font-size: 11px; color: var(--muted); }
+        .msg .who { font-weight: 700; }
+        .msg.ASTRONAUTA .who { color: var(--astro); }
+        .msg.TIERRA .who { color: var(--ground); }
+        .empty { color: var(--muted); font-style: italic; margin: auto; text-align: center; padding: 12px; }
+        form { display: flex; gap: 6px; padding: 8px 10px; border-top: 1px solid var(--border); background: var(--panel); }
+        #text {
+            flex: 1;
+            min-width: 0;
+            padding: 7px 9px;
+            border-radius: 6px;
+            border: 1px solid var(--border);
+            background: var(--bg);
+            color: var(--text);
+            font: inherit;
+        }
+        #text:focus, #name:focus { outline: 1px solid var(--ground); }
+        button {
+            padding: 7px 12px;
+            border-radius: 6px;
+            border: 1px solid var(--ground);
+            background: rgba(251, 191, 36, 0.15);
+            color: var(--ground);
+            font: inherit;
+            font-weight: 700;
+            cursor: pointer;
+        }
+        button:disabled { opacity: 0.5; cursor: default; }
+
+        /* Radio de voz */
+        #radio { padding: 8px 10px; border-bottom: 1px solid var(--border); display: flex; flex-direction: column; gap: 6px; }
+        #radio button { width: 100%; padding: 9px 12px; }
+        #ptt { border-color: var(--astro); color: var(--astro); background: rgba(34, 211, 238, 0.12); user-select: none; touch-action: none; }
+        #ptt.on { background: #dc2626; border-color: #f87171; color: #fff; }
+        #radioInfo { font-size: 11px; color: var(--muted); }
+        #radioInfo.warn { color: var(--ground); }
+        #onAir { font-size: 12px; font-weight: 700; color: var(--ok); display: none; }
+        #onAir.show { display: block; animation: blink 1s steps(2) infinite; }
+        @keyframes blink { 50% { opacity: 0.45; } }
+    </style>
+    <script src="/radio.js"></script>
+</head>
+<body>
+    <header>
+        <strong>📻 RADIO Y CHAT CON EL ASTRONAUTA</strong>
+        <span id="status"><span id="dot"></span><span id="statusText">conectando…</span></span>
+    </header>
+    <input id="name" maxlength="24" placeholder="Tu nombre (opcional, si hay varios en tierra)" autocomplete="off">
+    <div id="radio">
+        <button id="radioEnable" type="button">📻 Activar radio de voz</button>
+        <button id="ptt" type="button" hidden>🎙 MANTÉN PRESIONADO PARA HABLAR (o tecla T)</button>
+        <div id="onAir"></div>
+        <div id="radioInfo">Radio apagada. Actívala para hablar con el astronauta por voz.</div>
+    </div>
+    <div id="log"><div class="empty">Aún no hay mensajes. El astronauta escribe desde su tablero.</div></div>
+    <form id="form">
+        <input id="text" maxlength="280" placeholder="Escribe al astronauta…" autocomplete="off">
+        <button id="send" type="submit" disabled>Enviar</button>
+    </form>
+
+    <script>
+        const log = document.getElementById('log');
+        const nameInput = document.getElementById('name');
+        const textInput = document.getElementById('text');
+        const sendBtn = document.getElementById('send');
+        let socket;
+        let retryMs = 1000;
+        let hasMessages = false;
+
+        try { nameInput.value = localStorage.getItem('aether.chat.name') || ''; } catch (e) {}
+        nameInput.addEventListener('change', () => {
+            try { localStorage.setItem('aether.chat.name', nameInput.value.trim()); } catch (e) {}
+        });
+
+        function setStatus(online) {
+            document.getElementById('dot').className = online ? 'on' : 'off';
+            document.getElementById('statusText').textContent = online ? 'en línea' : 'sin conexión';
+            sendBtn.disabled = !online;
+        }
+
+        function render(msg) {
+            if (!hasMessages) { log.innerHTML = ''; hasMessages = true; }
+            const atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+            const el = document.createElement('div');
+            el.className = `msg ${msg.from}`;
+            const meta = document.createElement('div');
+            meta.className = 'meta';
+            const who = document.createElement('span');
+            who.className = 'who';
+            who.textContent = msg.from === 'ASTRONAUTA' ? '🧑‍🚀 ASTRONAUTA' : `🛰 TIERRA${msg.name ? ' · ' + msg.name : ''}`;
+            meta.append(who, ` · ${new Date(msg.timestamp).toLocaleTimeString()}`);
+            const body = document.createElement('div');
+            body.textContent = msg.text;
+            el.append(meta, body);
+            log.appendChild(el);
+            if (atBottom) log.scrollTop = log.scrollHeight;
+        }
+
+        function connect() {
+            const protocol = location.protocol === 'https:' ? 'wss' : 'ws';
+            socket = new WebSocket(`${protocol}://${location.host}/chat`);
+            socket.onopen = () => { retryMs = 1000; setStatus(true); };
+            socket.onmessage = (event) => {
+                const data = JSON.parse(event.data);
+                if (data.type === 'history') {
+                    log.innerHTML = '<div class="empty">Aún no hay mensajes. El astronauta escribe desde su tablero.</div>';
+                    hasMessages = false;
+                    data.messages.forEach(render);
+                    log.scrollTop = log.scrollHeight;
+                } else if (data.type === 'chat') {
+                    render(data);
+                }
+            };
+            socket.onclose = () => {
+                setStatus(false);
+                setTimeout(connect, retryMs);
+                retryMs = Math.min(retryMs * 2, 15000);
+            };
+        }
+
+        document.getElementById('form').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const text = textInput.value.trim();
+            if (!text || !socket || socket.readyState !== WebSocket.OPEN) return;
+            socket.send(JSON.stringify({ from: 'TIERRA', name: nameInput.value.trim(), text }));
+            textInput.value = '';
+            textInput.focus();
+        });
+
+        connect();
+
+        // ------------------------------------------------------------ Radio de voz
+        const radio = new AetherRadio({
+            url: `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/rtc`,
+            role: 'TIERRA',
+            getName: () => nameInput.value.trim(),
+            onChange: renderRadio
+        });
+        const ptt = document.getElementById('ptt');
+        const enableBtn = document.getElementById('radioEnable');
+        const info = document.getElementById('radioInfo');
+        const onAir = document.getElementById('onAir');
+        enableBtn.onclick = () => radio.enable();
+        AetherRadio.bindPushToTalk(radio, ptt);
+
+        function renderRadio(r) {
+            const on = r.state === 'ready' || r.state === 'listen';
+            enableBtn.hidden = on || r.state === 'connecting';
+            ptt.hidden = r.state !== 'ready';
+            ptt.classList.toggle('on', r.talking);
+            ptt.textContent = r.talking ? '🔴 TRANSMITIENDO… (suelta para terminar)' : '🎙 MANTÉN PRESIONADO PARA HABLAR (o tecla T)';
+
+            const others = r.peerCount();
+            const talkers = r.talkers();
+            onAir.classList.toggle('show', talkers.length > 0);
+            onAir.textContent = talkers.length ? `🔊 Hablando: ${talkers.map(AetherRadio.label).join(', ')}` : '';
+
+            info.classList.toggle('warn', Boolean(r.micError) || r.state === 'error');
+            if (r.state === 'connecting') info.textContent = 'Conectando la radio…';
+            else if (r.state === 'error') info.textContent = r.error;
+            else if (r.state === 'listen') info.textContent = `${r.micError} (${others} más en la radio)`;
+            else if (r.state === 'ready') info.textContent = others ? `En la radio con ${others} persona${others > 1 ? 's' : ''}.` : 'En la radio. Esperando al astronauta…';
+        }
+    </script>
+</body>
+</html>

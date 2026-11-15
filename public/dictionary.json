@@ -1,0 +1,124 @@
+{
+  "name": "U.S.S. Aether",
+  "key": "aether",
+  "measurements": [
+    {
+      "name": "Tiempo restante",
+      "key": "aether.timer",
+      "values": [
+        { "key": "value", "name": "Tiempo restante", "units": "s", "format": "integer", "min": 0, "max": 180, "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Strikes (errores)",
+      "key": "aether.strikes",
+      "values": [
+        { "key": "value", "name": "Strikes", "units": "", "format": "integer", "min": 0, "max": 3, "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Módulos reparados",
+      "key": "aether.modules",
+      "values": [
+        { "key": "value", "name": "Módulos reparados", "units": "/4", "format": "integer", "min": 0, "max": 4, "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Temperatura del reactor",
+      "key": "aether.reactor.temp",
+      "values": [
+        { "key": "value", "name": "Temperatura", "units": "K", "format": "float", "min": 0, "max": 3200, "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Integridad del casco",
+      "key": "aether.hull",
+      "values": [
+        { "key": "value", "name": "Integridad", "units": "%", "format": "integer", "min": 0, "max": 100, "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Estado de propulsores",
+      "key": "aether.thrusters",
+      "values": [
+        { "key": "value", "name": "Propulsores", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "NOMINAL" }, { "value": 1, "string": "CRÍTICO" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Estado de la misión",
+      "key": "aether.mission",
+      "values": [
+        { "key": "value", "name": "Misión", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "EN CURSO" }, { "value": 1, "string": "NAVE REPARADA" }, { "value": 2, "string": "NAVE DESTRUIDA" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Polaridad de fase",
+      "key": "aether.phase.polarity",
+      "values": [
+        { "key": "value", "name": "Polaridad", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "POSITIVA" }, { "value": 1, "string": "NEGATIVA" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Módulo 01 // Cables",
+      "key": "aether.mod.wires",
+      "values": [
+        { "key": "value", "name": "Cables", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "FALLA" }, { "value": 1, "string": "REPARADO" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Módulo 02 // Núcleo",
+      "key": "aether.mod.button",
+      "values": [
+        { "key": "value", "name": "Núcleo", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "FALLA" }, { "value": 1, "string": "REPARADO" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Módulo 03 // Escudo",
+      "key": "aether.mod.simon",
+      "values": [
+        { "key": "value", "name": "Escudo", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "FALLA" }, { "value": 1, "string": "REPARADO" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Módulo 04 // Fase",
+      "key": "aether.mod.keypad",
+      "values": [
+        { "key": "value", "name": "Fase", "format": "enum",
+          "enumerations": [ { "value": 0, "string": "FALLA" }, { "value": 1, "string": "REPARADO" } ],
+          "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    },
+    {
+      "name": "Registro de eventos",
+      "key": "aether.events",
+      "values": [
+        { "key": "value", "name": "Evento", "format": "string", "hints": { "range": 1 } },
+        { "key": "utc", "source": "timestamp", "name": "Timestamp", "format": "utc", "hints": { "domain": 1 } }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,8 @@
+Texturas descargadas de Poly Haven (https://polyhaven.com), licencia CC0 (dominio público).
+No requieren atribución; se deja constancia igual.
+
+- metal_plate        (piso diamantado)   https://polyhaven.com/a/metal_plate        — Rob Tuytel
+- blue_metal_plate   (paneles de pared)  https://polyhaven.com/a/blue_metal_plate   — Rob Tuytel
+
+Archivos: *_diff_1k.jpg (color), *_nor_gl_1k.jpg (relieve, normal OpenGL), *_rough_1k.jpg (rugosidad).
+El color de blue_metal_plate se pasa a gris claro por código (ship3d/textures.js).

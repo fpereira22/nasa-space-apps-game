@@ -1,0 +1,2070 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Protocolo Órbita Crítica - Consola de Reparación</title>
+    <link rel="icon" href="data:,">
+    <style>html { background: #05080f; }</style>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+    <!-- Radio de voz (mantener para hablar) y modo 3D (Three.js servido por server.js) -->
+    <script src="radio.js"></script>
+    <script src="voice.js"></script>
+    <script type="importmap">{ "imports": { "three": "/vendor/three/three.module.js", "three/addons/": "/vendor/three-addons/" } }</script>
+    <script type="module" src="ship3d.js"></script>
+    <!-- Banda sonora adaptativa y cinemáticas (menú principal, derrota, victoria) -->
+    <script src="music.js"></script>
+    <script type="module" src="cinematics.js"></script>
+    <style>
+        /* Fuentes personalizadas temáticas */
+        body {
+            font-family: 'Share Tech Mono', monospace;
+            background-color: #05080f;
+            color: #e2e8f0;
+            overflow: hidden;
+            user-select: none;
+        }
+        .font-orbitron {
+            font-family: 'Orbitron', sans-serif;
+        }
+
+        /* Desde el primer paint, el menú queda aislado del juego que aún se prepara. */
+        body.menu-open > :not(#mainMenu):not(#cinemaCanvas):not(#cinemaUI) {
+            visibility: hidden !important;
+            pointer-events: none !important;
+        }
+        body.menu-open::before {
+            content: '';
+            position: fixed;
+            inset: 0;
+            z-index: 59;
+            background: #05080f;
+            pointer-events: none;
+        }
+
+        /* Animación de estrellas y profundidad espacial */
+        @keyframes pulseGlow {
+            0%, 100% { opacity: 0.8; filter: drop-shadow(0 0 8px rgba(239, 68, 68, 0.8)); }
+            50% { opacity: 0.3; filter: drop-shadow(0 0 2px rgba(239, 68, 68, 0.2)); }
+        }
+        /* [FIX] La clase alarm-flash se usaba en el HTML/JS pero no existía */
+        .alarm-flash {
+            animation: pulseGlow 1s ease-in-out infinite;
+        }
+        /* [FIX] La clase crt-overlay se usaba pero no existía: líneas de barrido sutiles */
+        .crt-overlay {
+            pointer-events: none;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(255, 255, 255, 0.025) 0px,
+                rgba(255, 255, 255, 0.025) 1px,
+                transparent 1px,
+                transparent 3px
+            );
+        }
+
+        /* Estilos metálicos y tornillos para el tablero estilo KTANE */
+        .metal-panel {
+            background: linear-gradient(145deg, #27303f, #111622);
+            box-shadow: 
+                inset 0 2px 3px rgba(255,255,255,0.2),
+                inset 0 -3px 6px rgba(0,0,0,0.8),
+                0 25px 50px -12px rgba(0, 0, 0, 0.95),
+                0 0 0 4px #090d16;
+        }
+        .hazard-border {
+            background: repeating-linear-gradient(
+                -45deg,
+                #eab308,
+                #eab308 8px,
+                #18181b 8px,
+                #18181b 16px
+            );
+        }
+        .module-box {
+            background: linear-gradient(180deg, #161e2e 0%, #0d131f 100%);
+            box-shadow: inset 0 2px 8px rgba(0,0,0,0.9), 0 1px 0 rgba(255,255,255,0.1);
+        }
+        .screw {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: radial-gradient(circle at 30% 30%, #94a3b8, #334155);
+            box-shadow: inset 0 1px 1px rgba(0,0,0,0.8), 0 1px 0 rgba(255,255,255,0.2);
+            position: relative;
+        }
+        .screw::after {
+            content: '';
+            position: absolute;
+            top: 3.5px;
+            left: 1px;
+            width: 6px;
+            height: 1px;
+            background: #0f172a;
+            transform: rotate(35deg);
+        }
+        
+        /* ---------------- MODO 3D: caminar por la nave (ver ship3d.js y ViewMode) ---------------- */
+        .only-3d { display: none !important; }
+        body.mode-3d .only-3d:not(.hidden) { display: revert !important; }
+        body.mode-3d .only-3d.flex-3d:not(.hidden) { display: flex !important; }
+        body.mode-3d #spaceCanvas,
+        body.mode-3d .cockpit-deco { display: none !important; }
+        /* En 3D el tablero solo aparece al usar una consola, y muestra solo el módulo de esa sala */
+        body.mode-3d #repairBoard { display: none; }
+        body.mode-3d.station-open #repairBoard { display: flex; z-index: 45; }
+        body.mode-3d.station-open #stationBackdrop { display: block !important; }
+        #repairBoard.focus-mode .module-box:not(.focused) { opacity: 0.12; filter: grayscale(1); pointer-events: none; }
+        #repairBoard.focus-mode .module-box.focused { border-color: #fbbf24; box-shadow: 0 0 0 2px rgba(251, 191, 36, 0.35), inset 0 2px 8px rgba(0,0,0,0.9); }
+        body.mode-3d #shipCanvas { cursor: crosshair; }
+
+        /* Radio: botón mientras transmite */
+        #pttBtn.on { background: #dc2626; border-color: #fca5a5; color: #fff; }
+        .on-air { animation: onAirBlink 1s steps(2) infinite; }
+        @keyframes onAirBlink { 50% { opacity: 0.5; } }
+
+        /* Scrollbar discreto */
+        ::-webkit-scrollbar { width: 4px; }
+        ::-webkit-scrollbar-track { background: #0f172a; }
+        ::-webkit-scrollbar-thumb { background: #334155; border-radius: 4px; }
+
+        /* ---------------- MENÚ PRINCIPAL (fondo 3D en cinematics.js) ---------------- */
+        #mainMenu { position: fixed; inset: 0; z-index: 70; color: #e2e8f0; display: none; }
+        #mainMenu.open { display: block; }
+        #mainMenu.fallback { background: radial-gradient(ellipse at 70% 40%, rgba(14,40,80,.35), rgba(0,0,0,.92)); }
+        #mainMenu .shade { position: absolute; inset: 0; pointer-events: none;
+            background: linear-gradient(90deg, rgba(0,0,0,.82) 0%, rgba(0,0,0,.45) 34%, rgba(0,0,0,0) 62%),
+                        linear-gradient(0deg, rgba(0,0,0,.7) 0%, rgba(0,0,0,0) 22%); }
+        #mainMenu .splash { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; transition: opacity 1s; background: rgba(0,0,0,.35); }
+        #mainMenu .splash.gone { opacity: 0; pointer-events: none; }
+        #mainMenu .press { margin-top: 3rem; font-size: 12px; letter-spacing: .5em; color: #cbd5e1; animation: menuPulse 2.2s ease-in-out infinite; }
+        @keyframes menuPulse { 50% { opacity: .25; } }
+        #mainMenu .logo-kicker { font-size: 11px; letter-spacing: .55em; color: #7dd3fc; }
+        #mainMenu .logo { font-family: 'Orbitron', sans-serif; font-weight: 900; line-height: .95; letter-spacing: .08em;
+            font-size: clamp(30px, 4.6vw, 62px); background: linear-gradient(180deg, #ffffff 0%, #cbd5e1 55%, #64748b 100%);
+            -webkit-background-clip: text; background-clip: text; color: transparent; filter: drop-shadow(0 4px 24px rgba(56,189,248,.25)); }
+        #mainMenu .logo .accent { background: linear-gradient(180deg, #fde68a, #f59e0b 60%, #b45309); -webkit-background-clip: text; background-clip: text; }
+        #mainMenu .panel { position: absolute; left: clamp(16px, 7vw, 120px); top: 50%; transform: translateY(-50%); width: min(600px, calc(100vw - 32px)); opacity: 0; transition: opacity 1.2s .2s, transform 1.2s .2s; }
+        #mainMenu.ready .panel { opacity: 1; }
+        #mainMenu .rule { height: 1px; width: 100%; margin: 22px 0 26px; background: linear-gradient(90deg, rgba(125,211,252,.7), transparent); }
+        #mainMenu .item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 9px 0; font-family: 'Orbitron', sans-serif; font-weight: 700; font-size: clamp(14px, 1.6vw, 18px); letter-spacing: .22em; color: #94a3b8; cursor: pointer; background: none; border: 0; transition: color .25s, letter-spacing .35s; }
+        #mainMenu .item::before { content: ''; width: 0; height: 2px; background: #fbbf24; box-shadow: 0 0 10px #f59e0b; transition: width .3s; }
+        #mainMenu .item:hover, #mainMenu .item.sel { color: #fff; letter-spacing: .28em; }
+        #mainMenu .item:hover::before, #mainMenu .item.sel::before { width: 34px; }
+        #mainMenu .item .val { margin-left: auto; font-family: 'Share Tech Mono', monospace; font-size: 12px; letter-spacing: .2em; color: #7dd3fc; }
+        #mainMenu .item.primary { color: #fde68a; }
+        #mainMenu .sub { display: none; margin: 4px 0 8px 48px; font-size: 12px; color: #cbd5e1; line-height: 1.9; }
+        #mainMenu .sub.open { display: block; }
+        #mainMenu .sub label { display: flex; align-items: center; gap: 12px; letter-spacing: .15em; }
+        #mainMenu .sub input[type=range] { flex: 1; accent-color: #fbbf24; }
+        #mainMenu .foot { position: absolute; left: clamp(16px, 7vw, 120px); right: 16px; bottom: 22px; display: flex; justify-content: space-between; gap: 16px; font-size: 10px; letter-spacing: .25em; color: #64748b; opacity: 0; transition: opacity 1.2s .6s; }
+        #mainMenu.ready .foot { opacity: 1; }
+        #mainMenu .tip { color: #94a3b8; max-width: 520px; letter-spacing: .08em; font-size: 11px; }
+
+        /* Pantalla final (sobre la cinemática) */
+        #endGameModal { z-index: 75; }
+        #endGameCard { animation: cardIn .9s cubic-bezier(.2,.8,.2,1) both; }
+        @keyframes cardIn { from { opacity: 0; transform: translateY(18px) scale(.98); } }
+        .end-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin: -8px 0 20px; }
+        .end-stats div { background: rgba(15,23,42,.7); border: 1px solid rgba(100,116,139,.35); border-radius: 8px; padding: 8px 4px; }
+        .end-stats b { display: block; font-family: 'Orbitron', sans-serif; font-size: 18px; color: #f1f5f9; }
+        .end-stats span { font-size: 9px; letter-spacing: .2em; color: #94a3b8; }
+    </style>
+</head>
+<body class="menu-open w-screen h-screen relative flex flex-col justify-between">
+
+    <!-- CANVAS DE FONDO: VENTANA DE LA NAVE ESPACIAL Y CAMPO DE ESTRELLAS -->
+    <canvas id="spaceCanvas" class="fixed inset-0 w-full h-full z-0"></canvas>
+
+    <!-- MARCO DE LA CABINA DE LA NAVE (INTERIOR) -->
+    <div class="fixed inset-0 pointer-events-none z-10 flex flex-col justify-between border-[12px] md:border-[20px] border-slate-900/90 shadow-[inset_0_0_80px_rgba(0,0,0,0.95)]">
+        
+        <!-- Barra Superior de la Cabina -->
+        <div class="flex justify-between items-start p-3 md:p-6">
+            <!-- Estado de la Nave -->
+            <div class="bg-slate-900/85 border border-slate-700/80 backdrop-blur-md px-4 py-2 rounded-lg pointer-events-auto shadow-lg">
+                <div class="flex items-center gap-2">
+                    <span id="hullStatusDot" class="w-3 h-3 rounded-full bg-red-500 alarm-flash"></span>
+                    <h1 class="font-orbitron text-xs md:text-sm tracking-widest text-slate-200 font-bold">NAVE U.S.S. AETHER // CUBIERTA B</h1>
+                </div>
+                <p id="statusSubtitle" class="text-[11px] text-red-400 mt-0.5">ALERTA: FALLO CRÍTICO EN EL REACTOR DE ANTIMATERIA</p>
+            </div>
+
+            <div class="flex gap-2 pointer-events-auto">
+                <!-- Indicador de enlace de telemetría con Control en Tierra (Open MCT) -->
+                <div id="telemetryLink" class="hidden items-center gap-1.5 bg-slate-900/85 border border-slate-700/80 text-[10px] text-slate-400 px-3 py-2 rounded-lg backdrop-blur-md shadow-lg">
+                    <span id="telemetryDot" class="w-2 h-2 rounded-full bg-zinc-500"></span>
+                    <span id="telemetryText" class="hidden sm:inline">TELEMETRÍA: CONECTANDO…</span>
+                </div>
+                <!-- Radio de voz con control en tierra: primero se activa, luego se mantiene presionado para hablar -->
+                <button id="radioEnableBtn" class="hidden items-center gap-1.5 bg-slate-900/85 border border-amber-500/60 text-amber-300 text-[10px] font-bold tracking-wider px-3 py-2 rounded-lg backdrop-blur-md shadow-lg cursor-pointer hover:bg-amber-500/20" title="Activa la radio de voz con control en tierra">
+                    <span>📻</span><span class="hidden sm:inline">ACTIVAR RADIO</span>
+                </button>
+                <button id="pttBtn" class="hidden items-center gap-1.5 bg-slate-900/85 border border-cyan-500/60 text-cyan-300 text-[10px] font-bold tracking-wider px-3 py-2 rounded-lg backdrop-blur-md shadow-lg cursor-pointer select-none touch-none" title="Mantén presionado (o la tecla T) para hablar por radio">
+                    <span>🎙</span><span id="pttLabel" class="hidden sm:inline">MANTÉN [T] PARA HABLAR</span>
+                </button>
+                <!-- Voz de la computadora de la nave (avisos de tiempo, aciertos y strikes) -->
+                <button id="voiceToggle" class="flex items-center gap-1.5 bg-slate-900/85 border border-slate-700/80 text-cyan-300 text-[10px] font-bold tracking-wider px-3 py-2 rounded-lg backdrop-blur-md shadow-lg cursor-pointer hover:border-cyan-500/60">
+                    <span data-icon>🔊</span><span class="hidden sm:inline">VOZ</span>
+                </button>
+                <!-- Selector de modo: 2D = tablero de siempre · 3D = caminar por la nave con el astronauta -->
+                <button id="viewToggle" title="2D: tablero completo · 3D: camina por la nave y repara cada módulo en su sala" class="flex items-center bg-slate-900/85 border border-slate-700/80 text-[10px] font-bold tracking-wider rounded-lg backdrop-blur-md shadow-lg overflow-hidden cursor-pointer hover:border-cyan-500/60">
+                    <span data-view="2d" class="px-2 sm:px-2.5 py-2">2D</span>
+                    <span data-view="3d" class="px-2 sm:px-2.5 py-2">3D</span>
+                </button>
+                <!-- El manual ya no está aquí: lo tiene control en tierra en /manual.html (y dentro de Open MCT) -->
+            </div>
+        </div>
+
+        <!-- Indicador "está hablando por radio" -->
+        <div id="onAirBanner" class="hidden absolute top-16 md:top-20 right-3 md:right-6 bg-emerald-500/15 border border-emerald-400/60 text-emerald-300 text-[11px] font-bold tracking-wider px-3 py-1.5 rounded-lg backdrop-blur-md on-air z-30"></div>
+        <!-- Subtítulos de la voz de la nave -->
+        <div id="voiceCaption" class="hidden absolute top-28 md:top-32 left-1/2 -translate-x-1/2 z-30 max-w-[90vw] bg-slate-950/80 border border-cyan-500/40 text-cyan-100 text-xs md:text-sm px-3 py-1.5 rounded-lg backdrop-blur-md text-center">
+            <span class="text-cyan-400 font-bold tracking-widest text-[10px] mr-1.5">◉ AETHER</span><span data-text></span>
+        </div>
+        <div id="radioNotice" class="hidden absolute top-16 md:top-20 right-3 md:right-6 max-w-xs bg-amber-500/10 border border-amber-500/50 text-amber-200 text-[10px] px-3 py-1.5 rounded-lg backdrop-blur-md pointer-events-auto z-30"></div>
+
+        <!-- Decoración estructural de cabina (Vigas diagonales sutiles) -->
+        <div class="cockpit-deco hidden md:block absolute top-0 left-1/4 w-3 h-32 bg-slate-900/80 -skew-x-12 border-x border-slate-800"></div>
+        <div class="cockpit-deco hidden md:block absolute top-0 right-1/4 w-3 h-32 bg-slate-900/80 skew-x-12 border-x border-slate-800"></div>
+
+        <!-- HUD DEL MODO 3D (pantalla del traje): tiempo, errores, serial, baterías y sala actual -->
+        <div class="only-3d flex-3d absolute top-3 md:top-5 left-1/2 -translate-x-1/2 z-20 items-stretch gap-1.5 text-center">
+            <div class="bg-black/80 border-2 border-zinc-700 rounded-md px-2.5 py-1">
+                <div class="text-[8px] text-zinc-400 font-bold leading-none mb-0.5">TIEMPO</div>
+                <div id="hudTimer" class="font-orbitron font-black text-red-500 text-base md:text-lg leading-tight">03:00</div>
+            </div>
+            <div class="bg-black/80 border-2 border-zinc-700 rounded-md px-2 py-1">
+                <div class="text-[8px] text-zinc-400 font-bold leading-none mb-0.5">STRIKES</div>
+                <div id="hudStrikes" class="text-red-400 font-black text-sm md:text-base leading-tight tracking-widest">···</div>
+            </div>
+            <div class="bg-zinc-200 text-zinc-950 border border-zinc-400 rounded-sm px-2 py-1">
+                <div class="text-[8px] text-zinc-600 font-bold leading-none mb-0.5">SERIAL #</div>
+                <div id="hudSerial" class="font-black text-xs md:text-sm tracking-widest leading-tight">---</div>
+            </div>
+            <div class="bg-amber-950/90 border border-amber-600/80 rounded-sm px-2 py-1">
+                <div class="text-[8px] text-amber-300/80 leading-none mb-0.5">BATERÍAS</div>
+                <div id="hudBatteries" class="text-amber-400 font-bold text-xs md:text-sm leading-tight">-</div>
+            </div>
+            <div class="hidden sm:block bg-slate-900/85 border border-slate-700/80 rounded-md px-2 py-1">
+                <div class="text-[8px] text-slate-400 font-bold leading-none mb-0.5">MÓDULOS</div>
+                <div id="hudModules" class="text-emerald-400 font-bold text-xs md:text-sm leading-tight">0 / 4</div>
+            </div>
+        </div>
+        <div class="only-3d absolute top-[4.6rem] md:top-24 left-1/2 -translate-x-1/2 z-20 text-[11px] font-bold tracking-widest text-cyan-300 bg-slate-950/70 px-3 py-0.5 rounded" id="hudRoom"></div>
+
+        <!-- RETROVISOR DE LA NAVE ESPACIAL (PARTE SUPERIOR CENTRAL) -->
+        <div class="cockpit-deco absolute top-3 md:top-5 left-1/2 -translate-x-1/2 flex flex-col items-center z-20">
+            <!-- Soporte articulado al techo de la cabina -->
+            <div class="w-3 h-3 bg-slate-800 border-x border-slate-600 rounded-t-sm"></div>
+            <div class="w-1.5 h-2.5 bg-slate-700 border-x border-slate-500"></div>
+            <!-- Carcasa del espejo retrovisor -->
+            <div class="relative bg-slate-800 p-1.5 rounded-xl border-2 border-slate-600 shadow-[0_12px_25px_rgba(0,0,0,0.9)]">
+                <!-- Cristal del retrovisor con reflejo de la nave y propulsores -->
+                <div class="w-44 h-14 md:w-64 md:h-20 bg-[#040812] rounded-lg overflow-hidden relative border border-cyan-500/30 shadow-[inset_0_0_15px_rgba(56,189,248,0.2)]">
+                    <canvas id="rearviewCanvas" class="w-full h-full block"></canvas>
+                    <!-- Etiqueta HUD sutil del retrovisor -->
+                    <div class="absolute top-1 left-2 text-[8px] md:text-[9px] text-cyan-400/80 font-bold tracking-widest flex items-center gap-1">
+                        <span class="w-1.5 h-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
+                        CAM-POPA // PROPULSORES
+                    </div>
+                    <!-- Brillo diagonal del cristal -->
+                    <div class="absolute inset-0 bg-gradient-to-tr from-transparent via-white/5 to-white/15 pointer-events-none"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Silueta del casco / morro de la nave visible en la parte inferior de la cabina -->
+        <div class="cockpit-deco absolute bottom-0 left-0 right-0 h-16 pointer-events-none overflow-hidden">
+            <svg viewBox="0 0 1200 120" preserveAspectRatio="none" class="w-full h-full">
+                <!-- Alas / proa delantera de la nave -->
+                <polygon points="0,120 0,65 260,105 940,105 1200,65 1200,120" fill="#0f172a" stroke="#334155" stroke-width="3"/>
+                <polygon points="180,120 320,95 880,95 1020,120" fill="#1e293b" stroke="#475569" stroke-width="2"/>
+                <!-- Luces de navegación en las puntas de proa -->
+                <circle cx="80" cy="78" r="4" fill="#ef4444" />
+                <circle cx="1120" cy="78" r="4" fill="#22c55e" />
+            </svg>
+        </div>
+
+        <!-- MODO 3D: aviso para usar la consola cercana (también se puede tocar) -->
+        <div class="flex flex-col items-center gap-2 p-3 md:p-5 z-20">
+        <button id="interactPrompt" class="hidden pointer-events-auto items-center gap-2 bg-amber-500/20 border-2 border-amber-400 text-amber-200 font-orbitron font-bold text-xs md:text-sm px-4 py-2 rounded-lg backdrop-blur-md shadow-lg cursor-pointer alarm-flash">
+            <span class="bg-amber-400 text-slate-950 px-2 rounded">E</span><span id="interactText">REPARAR</span>
+        </button>
+        <div id="lockHint" class="hidden only-3d text-[11px] text-slate-300 bg-slate-950/70 px-3 py-1 rounded">Haz clic en la nave para mirar con el mouse · Esc lo suelta</div>
+
+        <!-- Indicador visual inferior en la cabina -->
+        <div class="flex items-end justify-center">
+            <div class="bg-slate-900/85 border border-slate-700/80 px-4 py-1.5 rounded-full text-[11px] text-slate-300 backdrop-blur-sm shadow-lg text-center">
+                <span class="text-amber-400 font-bold">[ENLACE DE VOZ ACTIVO]</span> Describe el tablero al experto en tierra: él tiene el manual y datos de la nave que tú no ves.
+            </div>
+        </div>
+        </div>
+    </div>
+
+    <!-- MODO 3D: minimapa y controles (abajo a la derecha) -->
+    <div class="only-3d fixed right-4 md:right-8 bottom-20 md:bottom-24 z-30 pointer-events-none">
+        <div class="bg-slate-950/80 border border-slate-700/80 rounded-lg p-1.5 backdrop-blur-md shadow-lg">
+            <canvas id="minimap" width="150" height="150" class="block w-[110px] h-[110px] md:w-[150px] md:h-[150px]"></canvas>
+        </div>
+        <div class="hidden md:block mt-1.5 bg-slate-950/80 border border-slate-700/80 rounded-lg px-2.5 py-1.5 text-[10px] text-slate-300 leading-relaxed">
+            <b class="text-cyan-300">WASD</b> moverse · <b class="text-cyan-300">Shift</b> correr<br>
+            <b class="text-cyan-300">Espacio</b> saltar · gravedad baja<br>
+            <b class="text-cyan-300">Mouse</b> mirar · <b class="text-cyan-300">E</b> usar consola<br>
+            <b class="text-cyan-300">V</b> cámara: <span id="cameraModeLabel">3ª PERSONA</span><br>
+            <b class="text-cyan-300">C</b> cambiar lado (cinemática)<br>
+            <b class="text-cyan-300">T</b> hablar por radio
+        </div>
+        <button id="cameraBtn" class="md:hidden pointer-events-auto mt-1.5 w-full bg-slate-950/80 border border-slate-700/80 rounded-lg px-2 py-1.5 text-[10px] text-cyan-300 font-bold">🎥 CÁMARA</button>
+    </div>
+    <!-- Joystick táctil (aparece al arrastrar en la mitad izquierda) -->
+    <div id="stickBase" class="hidden fixed z-30 w-[100px] h-[100px] rounded-full border-2 border-cyan-400/50 bg-cyan-400/10 pointer-events-none">
+        <div id="stickKnob" class="absolute left-[30px] top-[30px] w-10 h-10 rounded-full bg-cyan-400/60"></div>
+    </div>
+    <!-- Fondo oscuro detrás del tablero cuando se usa una consola en 3D -->
+    <div id="stationBackdrop" class="hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px]"></div>
+
+    <!-- ===================================================================== -->
+    <!-- TABLERO DE REPARACIÓN CENTRADO (1/4 DE PANTALLA: 50vw x 50vh)         -->
+    <!-- ===================================================================== -->
+    <main id="repairBoard" class="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[92vw] h-[56vh] sm:w-[50vw] sm:h-[50vh] z-20 metal-panel border-2 border-slate-500 rounded-xl p-1.5 flex flex-col justify-between overflow-hidden transition-transform">
+        
+        <!-- Franja superior de peligro industrial (Estilo KTANE) -->
+        <div class="hazard-border h-2 w-full rounded-t-lg shrink-0 opacity-90"></div>
+
+        <!-- Contenedor interno del chasis -->
+        <div class="flex-1 flex flex-col justify-between p-2 md:p-2.5 bg-slate-900/60 relative min-h-0">
+            
+            <!-- Tornillos decorativos en las 4 esquinas del chasis -->
+            <div class="screw absolute top-1.5 left-1.5 z-30"></div>
+            <div class="screw absolute top-1.5 right-1.5 z-30"></div>
+            <div class="screw absolute bottom-1.5 left-1.5 z-30"></div>
+            <div class="screw absolute bottom-1.5 right-1.5 z-30"></div>
+
+            <!-- Capa estética CRT muy sutil -->
+            <div class="crt-overlay absolute inset-0 z-30"></div>
+
+            <!-- Encabezado de la Bomba/Núcleo: Temporizador LED, Strikes y Placa de Serie Remachada -->
+            <header class="flex items-center justify-between bg-zinc-950 border-2 border-zinc-700 rounded-md px-2.5 py-1 z-20 shrink-0 shadow-inner">
+                <!-- Temporizador Digital Rojo 7-Segmentos -->
+                <div class="flex items-center gap-2.5">
+                    <div class="bg-black border-2 border-zinc-800 px-2.5 py-0.5 rounded text-red-500 font-orbitron font-black text-base md:text-xl tracking-widest shadow-[inset_0_0_12px_rgba(239,68,68,0.45)]" id="timerDisplay">
+                        03:00
+                    </div>
+                    <!-- Indicadores de Errores (Strikes estilo X roja) -->
+                    <div class="flex flex-col items-center bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 rounded">
+                        <span class="text-[8px] text-zinc-400 uppercase leading-none mb-0.5 font-bold">STRIKES</span>
+                        <div class="flex gap-1" id="strikesContainer">
+                            <span class="w-3.5 h-3.5 rounded-sm bg-black border border-zinc-700 flex items-center justify-center text-[10px] font-black text-transparent" id="strike1">X</span>
+                            <span class="w-3.5 h-3.5 rounded-sm bg-black border border-zinc-700 flex items-center justify-center text-[10px] font-black text-transparent" id="strike2">X</span>
+                            <span class="w-3.5 h-3.5 rounded-sm bg-black border border-zinc-700 flex items-center justify-center text-[10px] font-black text-transparent" id="strike3">X</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Placa metálica lateral (Serial y Baterías estilo etiqueta física KTANE) -->
+                <div class="flex items-center gap-1.5 text-right">
+                    <div class="bg-zinc-200 text-zinc-950 border border-zinc-400 px-2 py-0.5 rounded-sm shadow">
+                        <div class="text-[7px] font-bold uppercase tracking-tighter leading-none text-zinc-600">SERIAL #</div>
+                        <div id="serialNumberDisplay" class="text-xs md:text-sm font-black tracking-widest leading-tight">X7B-94</div>
+                    </div>
+                    <div class="bg-amber-950/90 border border-amber-600/80 px-2 py-0.5 rounded-sm">
+                        <div class="text-[7px] text-amber-300/80 uppercase leading-none">BATERÍAS</div>
+                        <div id="batteryCountDisplay" class="text-xs md:text-sm font-bold text-amber-400 leading-tight">2 AA</div>
+                    </div>
+                </div>
+            </header>
+
+            <!-- Cuadrícula de Módulos (Estilo compartimentos individuales con LED de estado verde arriba a la derecha) -->
+            <section class="grid grid-cols-2 grid-rows-2 gap-2 md:gap-2.5 flex-1 my-1.5 z-20 min-h-0">
+                
+                <!-- MÓDULO 1: CABLES (WIRES) -->
+                <div id="modWires" class="module-box border-2 border-slate-700 rounded-md p-2 flex flex-col justify-between relative">
+                    <div class="flex justify-between items-center border-b border-slate-800/90 pb-0.5">
+                        <span class="text-[9px] md:text-[11px] font-bold text-slate-400 tracking-wider uppercase">01 // CABLES</span>
+                        <span id="ledWires" class="w-3 h-3 rounded-full bg-zinc-900 border border-zinc-600 shadow-inner"></span>
+                    </div>
+                    <div id="wiresList" class="flex flex-col justify-around flex-1 py-1 px-1 gap-1 bg-zinc-950/60 rounded border border-zinc-800/80 mt-1">
+                        <!-- Generado dinámicamente por JS -->
+                    </div>
+                </div>
+
+                <!-- MÓDULO 2: EL BOTÓN (THE BUTTON) -->
+                <div id="modButton" class="module-box border-2 border-slate-700 rounded-md p-2 flex flex-col justify-between relative">
+                    <div class="flex justify-between items-center border-b border-slate-800/90 pb-0.5">
+                        <span class="text-[9px] md:text-[11px] font-bold text-slate-400 tracking-wider uppercase">02 // NÚCLEO</span>
+                        <span id="ledButton" class="w-3 h-3 rounded-full bg-zinc-900 border border-zinc-600 shadow-inner"></span>
+                    </div>
+                    <div class="flex items-center justify-around flex-1 gap-2 pt-0.5">
+                        <button id="coreButton" class="w-14 h-14 md:w-16 md:h-16 rounded-full border-4 border-zinc-700 shadow-[0_5px_10px_rgba(0,0,0,0.8)] font-orbitron font-black text-[10px] md:text-xs text-white flex items-center justify-center transition-transform active:scale-95 cursor-pointer select-none">
+                            PURGAR
+                        </button>
+                        <!-- Tira LED vertical clásica de KTANE -->
+                        <div class="flex flex-col items-center gap-0.5 bg-zinc-950 p-1 rounded border border-zinc-800">
+                            <div id="buttonStrip" class="w-3 h-12 rounded-full bg-slate-900 border border-slate-700 transition-colors duration-150"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MÓDULO 3: SIMON SAYS (ESCUDO TÉRMICO) -->
+                <div id="modSimon" class="module-box border-2 border-slate-700 rounded-md p-2 flex flex-col justify-between relative">
+                    <div class="flex justify-between items-center border-b border-slate-800/90 pb-0.5">
+                        <span class="text-[9px] md:text-[11px] font-bold text-slate-400 tracking-wider uppercase">03 // ESCUDO</span>
+                        <span id="ledSimon" class="w-3 h-3 rounded-full bg-zinc-900 border border-zinc-600 shadow-inner"></span>
+                    </div>
+                    <div class="flex-1 flex items-center justify-center">
+                        <!-- Rombo clásico de 4 botones de Simon Says -->
+                        <div class="grid grid-cols-2 gap-1.5 w-16 h-16 md:w-20 md:h-20 rotate-45 scale-90">
+                            <button data-color="red" class="simon-btn bg-red-950 hover:bg-red-800 border-2 border-red-700/70 rounded-tl-md transition cursor-pointer shadow-inner"></button>
+                            <button data-color="blue" class="simon-btn bg-blue-950 hover:bg-blue-800 border-2 border-blue-700/70 rounded-tr-md transition cursor-pointer shadow-inner"></button>
+                            <button data-color="yellow" class="simon-btn bg-amber-950 hover:bg-amber-800 border-2 border-amber-700/70 rounded-bl-md transition cursor-pointer shadow-inner"></button>
+                            <button data-color="green" class="simon-btn bg-emerald-950 hover:bg-emerald-800 border-2 border-emerald-700/70 rounded-br-md transition cursor-pointer shadow-inner"></button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- MÓDULO 4: KEYPADS / SÍMBOLOS -->
+                <div id="modKeypad" class="module-box border-2 border-slate-700 rounded-md p-2 flex flex-col justify-between relative">
+                    <div class="flex justify-between items-center border-b border-slate-800/90 pb-0.5">
+                        <span class="text-[9px] md:text-[11px] font-bold text-slate-400 tracking-wider uppercase">04 // FASE</span>
+                        <span id="ledKeypad" class="w-3 h-3 rounded-full bg-zinc-900 border border-zinc-600 shadow-inner"></span>
+                    </div>
+                    <div class="flex flex-col justify-between flex-1 pt-1">
+                        <div id="freqDisplay" class="bg-black border border-zinc-700 text-emerald-400 text-center text-[11px] md:text-xs font-bold py-0.5 rounded-sm tracking-widest shadow-inner">
+                            FREQ: 412 Hz
+                        </div>
+                        <div id="keypadGrid" class="grid grid-cols-4 gap-1 mt-1 flex-1">
+                            <!-- 4 teclas físicas estilo KTANE generadas por JS -->
+                        </div>
+                    </div>
+                </div>
+
+            </section>
+
+            <!-- Barra Inferior del Tablero: Progreso y Reinicio -->
+            <footer class="flex items-center justify-between text-[10px] text-zinc-400 bg-zinc-950 px-2.5 py-0.5 rounded border border-zinc-800 z-20 shrink-0">
+                <span id="modulesProgress" class="font-bold tracking-wider">MÓDULOS DESACTIVADOS: 0 / 4</span>
+                <span class="flex items-center gap-3">
+                    <button id="closeStationBtn" class="only-3d text-cyan-300 hover:text-white cursor-pointer font-bold">✕ VOLVER A LA NAVE [E]</button>
+                    <button id="resetConsoleBtn" class="text-amber-400 hover:text-amber-300 underline cursor-pointer font-bold">Reiniciar</button>
+                </span>
+            </footer>
+        </div>
+
+        <!-- Franja inferior de peligro industrial (Estilo KTANE) -->
+        <div class="hazard-border h-2 w-full rounded-b-lg shrink-0 opacity-90"></div>
+    </main>
+
+    <!-- ===================================================================== -->
+    <!-- CHAT DE TEXTO CON CONTROL EN TIERRA (solo con servidor; ver Chat)      -->
+    <!-- ===================================================================== -->
+    <button id="chatToggle" class="hidden fixed left-4 md:left-8 bottom-20 md:bottom-24 z-30 items-center gap-2 bg-slate-900/90 border border-slate-700/80 text-[11px] text-slate-200 px-3 py-2 rounded-lg backdrop-blur-md shadow-lg font-bold tracking-wider cursor-pointer hover:border-amber-500/60">
+        <span>💬 CHAT CON TIERRA</span>
+        <span id="chatBadge" class="hidden min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500 text-slate-950 text-[10px] items-center justify-center">0</span>
+    </button>
+    <section id="chatPanel" class="hidden fixed left-4 md:left-8 bottom-20 md:bottom-24 z-30 w-[min(18rem,calc(100vw-2rem))] h-72 flex-col bg-slate-900/95 border border-slate-700/80 rounded-lg backdrop-blur-md shadow-2xl overflow-hidden">
+        <header class="flex items-center justify-between px-3 py-1.5 border-b border-slate-700/80 bg-slate-950/60">
+            <span class="text-[10px] font-bold tracking-widest text-amber-400">💬 ENLACE DE TEXTO // TIERRA</span>
+            <span class="flex items-center gap-2">
+                <span id="chatDot" class="w-2 h-2 rounded-full bg-zinc-500"></span>
+                <button id="chatClose" type="button" title="Minimizar" class="text-slate-400 hover:text-white text-xs cursor-pointer px-1">✕</button>
+            </span>
+        </header>
+        <div id="chatLog" class="flex-1 overflow-y-auto px-3 py-2 space-y-1.5 text-[11px] leading-snug"></div>
+        <form id="chatForm" class="flex gap-1.5 p-2 border-t border-slate-700/80">
+            <input id="chatInput" maxlength="280" autocomplete="off" placeholder="Escribe a control en tierra…" class="flex-1 min-w-0 bg-black/60 border border-slate-700 rounded px-2 py-1 text-[11px] text-slate-200 focus:outline-none focus:border-amber-500/70">
+            <button type="submit" class="bg-amber-500/20 border border-amber-500/60 text-amber-300 text-[11px] font-bold px-2.5 rounded cursor-pointer hover:bg-amber-500/30">ENVIAR</button>
+        </form>
+    </section>
+
+
+    <!-- ===================================================================== -->
+    <!-- PANTALLA DE FIN DE PARTIDA (EXPLOSIÓN O VICTORIA)                     -->
+    <!-- ===================================================================== -->
+    <div id="endGameModal" class="fixed inset-0 bg-black/90 backdrop-blur-md z-50 hidden flex-col items-center justify-center p-6 text-center">
+        <div id="endGameCard" class="max-w-md w-full bg-slate-900 border-2 border-red-500 rounded-2xl p-6 shadow-2xl">
+            <div id="endGameIcon" class="text-5xl mb-3">💥</div>
+            <h2 id="endGameTitle" class="font-orbitron text-2xl font-black text-red-500 mb-2">NAVE DESTRUIDA</h2>
+            <p id="endGameDesc" class="text-sm text-slate-300 mb-6">El núcleo de antimateria colapsó en órbita. Nadie sobrevivió para contarlo.</p>
+            <div class="end-stats">
+                <div><b id="endStatTime">0:00</b><span>TIEMPO</span></div>
+                <div><b id="endStatModules">0/4</b><span>MÓDULOS</span></div>
+                <div><b id="endStatStrikes">0/3</b><span>STRIKES</span></div>
+            </div>
+            <button id="playAgainBtn" class="w-full bg-cyan-600 hover:bg-cyan-500 text-white font-orbitron font-bold py-3 px-4 rounded-xl transition cursor-pointer shadow-lg">
+                NUEVA MISIÓN
+            </button>
+            <button id="toMenuBtn" class="w-full mt-2 bg-transparent border border-slate-600 hover:border-slate-300 text-slate-300 hover:text-white font-orbitron font-bold text-xs tracking-widest py-2.5 px-4 rounded-xl transition cursor-pointer">
+                MENÚ PRINCIPAL
+            </button>
+        </div>
+    </div>
+
+    <!-- ===================================================================== -->
+    <!-- MENÚ PRINCIPAL (fondo: nave en órbita, cinematics.js · música: music.js) -->
+    <!-- ===================================================================== -->
+    <div id="mainMenu" class="open">
+        <div class="shade"></div>
+        <div class="splash" id="menuSplash">
+            <div class="logo-kicker">U.S.S. AETHER · AX-01</div>
+            <div class="logo text-center mt-3">PROTOCOLO<br><span class="accent">ÓRBITA CRÍTICA</span></div>
+            <div class="press">PRESIONA CUALQUIER TECLA</div>
+        </div>
+        <div class="panel" id="menuPanel">
+            <div class="logo-kicker">U.S.S. AETHER · AX-01 · CUBIERTA B</div>
+            <div class="logo mt-3">PROTOCOLO<br><span class="accent">ÓRBITA CRÍTICA</span></div>
+            <div class="rule"></div>
+            <nav id="menuItems">
+                <button class="item primary" data-act="start">INICIAR MISIÓN</button>
+                <button class="item" data-act="mode">MODO DE JUEGO <span class="val" id="menuModeVal">2D</span></button>
+                <button class="item" data-act="settings">AJUSTES DE AUDIO</button>
+                <div class="sub" id="menuSettings">
+                    <label>MÚSICA <input type="range" id="volMusic" min="0" max="100"></label>
+                    <label>EFECTOS <input type="range" id="volSfx" min="0" max="100"></label>
+                </div>
+                <button class="item" data-act="credits">CRÉDITOS</button>
+                <div class="sub" id="menuCredits">
+                    Leidalí Carrillo Fernández<br>Felipe Pereira Alarcón<br>
+                    <span class="text-slate-500">Telemetría: NASA Open MCT · Gráficos: Three.js</span>
+                </div>
+            </nav>
+        </div>
+        <div class="foot">
+            <span class="tip">El astronauta repara la nave. Control en tierra tiene el manual. Ninguno puede ganar solo.</span>
+            <span>↑↓ ELEGIR · ENTER CONFIRMAR</span>
+        </div>
+    </div>
+
+    <script>
+        /**
+         * ============================================================================
+         * MOTOR DE AUDIO SINTÉTICO (Web Audio API - Sin archivos externos)
+         * ============================================================================
+         */
+        const AudioEngine = {
+            ctx: null,
+            init() {
+                if (!this.ctx) {
+                    this.ctx = new (window.AudioContext || window.webkitAudioContext)();
+                }
+                // [FIX] Chrome crea el AudioContext "suspended" si no hubo interacción aún
+                if (this.ctx.state === 'suspended') this.ctx.resume();
+            },
+            playTone(freq, type = 'sine', duration = 0.15, vol = 0.1) {
+                try {
+                    this.init();
+                    const osc = this.ctx.createOscillator();
+                    const gain = this.ctx.createGain();
+                    osc.type = type;
+                    osc.frequency.setValueAtTime(freq, this.ctx.currentTime);
+                    gain.gain.setValueAtTime(vol, this.ctx.currentTime);
+                    gain.gain.exponentialRampToValueAtTime(0.001, this.ctx.currentTime + duration);
+                    osc.connect(gain);
+                    gain.connect(this.ctx.destination);
+                    osc.start();
+                    osc.stop(this.ctx.currentTime + duration);
+                } catch (e) {}
+            },
+            tick() { this.playTone(880, 'sine', 0.04, 0.03); },
+            cut() { this.playTone(220, 'sawtooth', 0.12, 0.15); },
+            success() {
+                this.playTone(523.25, 'triangle', 0.15, 0.12);
+                setTimeout(() => this.playTone(659.25, 'triangle', 0.25, 0.12), 120);
+            },
+            strike() {
+                this.playTone(130, 'sawtooth', 0.35, 0.25);
+                setTimeout(() => this.playTone(110, 'sawtooth', 0.35, 0.25), 150);
+            },
+            explosion() {
+                this.playTone(60, 'sawtooth', 1.2, 0.4);
+                this.playTone(45, 'square', 1.2, 0.4);
+            }
+        };
+
+        /**
+         * Avisos hablados (voice.js). Fuente 'intercom' = altavoz del techo de la sala donde estás;
+         * una clave de módulo = la consola de ese módulo (en 3D se oye desde ahí, con su reverb).
+         */
+        const Announcer = {
+            TIMER: { 120: 't120', 90: 't90', 60: 't60', 30: 't30', 20: 't20' },
+            PRIORITY: { timer: 1, solved: 2, strike: 3, countdown: 5, end: 6 },
+            say(ids, opts) { if (window.AetherVoice) window.AetherVoice.say(ids, opts); },
+            source() { return ViewMode.station || 'intercom'; },
+
+            newGame() {
+                if (window.AetherVoice) window.AetherVoice.stopAll();
+                this.say('start', { priority: this.PRIORITY.timer, maxAge: 10 });
+            },
+            tick(t) {
+                if (t >= 1 && t <= 10) this.say(`n${t}`, { priority: this.PRIORITY.countdown, maxAge: 0.8 });
+                else if (this.TIMER[t]) this.say(this.TIMER[t], { priority: this.PRIORITY.timer, maxAge: 5 });
+            },
+            solved(key, totalSolved) {
+                const praise = `good${1 + Math.floor(Math.random() * 3)}`;
+                const left = 4 - totalSolved;
+                if (left <= 0) return; // el último módulo lo anuncia end() con la victoria
+                this.say([praise, `mod_${key}`, `left${left}`], { source: key, priority: this.PRIORITY.solved, maxAge: 4 });
+            },
+            strike(n) {
+                this.say(`strike${n}`, { source: this.source(), priority: this.PRIORITY.strike, maxAge: 3 });
+            },
+            end(victory, byStrikes, source) {
+                const id = victory ? 'victory' : byStrikes ? 'strike3' : 'timeout';
+                this.say(id, { source: victory ? 'intercom' : source, priority: this.PRIORITY.end, maxAge: 5 });
+            }
+        };
+
+        // [FIX] GameState se declaraba DESPUÉS de animateRearview(), que lo lee en su
+        // primer frame -> ReferenceError (TDZ) y el script se detenía: el juego nunca arrancaba.
+        const GameState = {
+            timeLeft: 180, // 3 minutos
+            strikes: 0,
+            maxStrikes: 3,
+            timerInterval: null,
+            isOver: false,
+            serial: '',
+            hasVowel: false,
+            lastDigitOdd: false,
+            batteries: 1,
+            solved: { wires: false, button: false, simon: false, keypad: false },
+            
+            // Datos específicos de cada módulo
+            wiresData: [],
+            correctWireIndex: 0,
+            
+            buttonData: { color: 'blue', label: 'ABORTAR', stripColor: 'blue', mustHold: true },
+            buttonHoldTimer: null,
+            isHoldingButton: false,
+            
+            simonSequence: [],
+            simonUserStep: 0,
+            simonInterval: null,
+            
+            keypadTarget: [],
+            keypadStep: 0,
+            victory: false,
+
+            // Datos que SOLO ve control en tierra (Open MCT). Ver reglas 📡 en manual.html
+            reactorTemp: 600,      // K, último valor enviado a Open MCT
+            phasePolarity: 0,      // 0 = POSITIVA, 1 = NEGATIVA (invierte el orden del módulo FASE)
+            buttonPressedHot: false // ¿el reactor estaba >= REACTOR_ALERT_K al presionar el botón?
+        };
+
+        /**
+         * ============================================================================
+         * ENLACE DE TELEMETRÍA CON CONTROL EN TIERRA (Open MCT)
+         * ----------------------------------------------------------------------------
+         * Envía 1 muestra por segundo + eventos (strikes, módulos, fin de partida) por
+         * WebSocket al servidor (server.js), que los reenvía a Open MCT.
+         *  - Servido por server.js -> se conecta solo a ws://<host>/game
+         *  - Abierto como archivo  -> agrega ?telemetry=ws://IP:8080/game a la URL
+         *  - Para desactivarlo     -> ?telemetry=off
+         * Solo se envía ESTADO de la nave, nunca los datos del puzzle (colores de
+         * cables, serial, frecuencia...): el experto debe seguir dependiendo de la voz.
+         * ============================================================================
+         */
+        const TOTAL_TIME = 180;
+        const REACTOR_ALERT_K = 1400; // mismo umbral amarillo que limits-plugin.js en Open MCT
+        const MODULE_NAMES = { wires: 'CABLES', button: 'NÚCLEO', simon: 'ESCUDO', keypad: 'FASE' };
+
+        const Telemetry = {
+            socket: null,
+            url: null,
+            enabled: false,
+            queue: [],
+            retryMs: 1000,
+            reactorBase: 600, // temperatura sin ruido; GameState.reactorTemp es la que se reporta
+
+            init() {
+                const param = new URLSearchParams(location.search).get('telemetry');
+                if (param === 'off') return;
+                if (param) {
+                    this.url = param;
+                } else if (location.protocol === 'http:' || location.protocol === 'https:') {
+                    this.url = `${location.protocol === 'https:' ? 'wss' : 'ws'}://${location.host}/game`;
+                } else {
+                    return; // abierto como file:// sin parámetro: modo offline
+                }
+                this.enabled = true;
+                const linkEl = document.getElementById('telemetryLink');
+                linkEl.classList.remove('hidden');
+                linkEl.classList.add('flex');
+                this.connect();
+                setInterval(() => this.sample(), 1000);
+            },
+
+            connect() {
+                try {
+                    this.socket = new WebSocket(this.url);
+                } catch (e) {
+                    this.scheduleRetry();
+                    return;
+                }
+                this.socket.onopen = () => {
+                    this.retryMs = 1000;
+                    this.setLinkStatus(true);
+                    this.queue.splice(0).forEach(msg => this.socket.send(msg));
+                };
+                this.socket.onclose = () => {
+                    this.setLinkStatus(false);
+                    this.scheduleRetry();
+                };
+                this.socket.onerror = () => {};
+            },
+
+            scheduleRetry() {
+                setTimeout(() => this.connect(), this.retryMs);
+                this.retryMs = Math.min(this.retryMs * 2, 15000);
+            },
+
+            setLinkStatus(online) {
+                document.getElementById('telemetryDot').className =
+                    `w-2 h-2 rounded-full ${online ? 'bg-emerald-400 animate-pulse' : 'bg-red-500'}`;
+                document.getElementById('telemetryText').textContent =
+                    online ? 'TELEMETRÍA: EN LÍNEA' : 'TELEMETRÍA: SIN ENLACE';
+            },
+
+            send(payload) {
+                if (!this.enabled) return;
+                const msg = JSON.stringify(payload);
+                if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+                    this.socket.send(msg);
+                } else if (this.queue.length < 300) {
+                    this.queue.push(msg); // se envía al reconectar
+                }
+            },
+
+            event(text) {
+                this.send({ type: 'event', timestamp: Date.now(), value: text });
+            },
+
+            sample() {
+                if (!this.enabled) return;
+                const solvedCount = Object.values(GameState.solved).filter(Boolean).length;
+                const elapsed = TOTAL_TIME - GameState.timeLeft;
+                // 0 = EN CURSO, 1 = REPARADA, 2 = DESTRUIDA
+                const mission = !GameState.isOver ? 0 : (GameState.victory ? 1 : 2);
+
+                // Modelo simple del reactor: sube con el tiempo y los errores, baja al reparar
+                const target = mission === 1 ? 450
+                    : mission === 2 ? 3000
+                    : 600 + elapsed * 5 + GameState.strikes * 350 - solvedCount * 220;
+                this.reactorBase += (target - this.reactorBase) * 0.25;
+                // El juego evalúa las reglas con el MISMO valor que ve el experto en Open MCT
+                GameState.reactorTemp = Math.round((this.reactorBase + (Math.random() - 0.5) * 12) * 10) / 10;
+
+                this.send({
+                    type: 'telemetry',
+                    timestamp: Date.now(),
+                    values: {
+                        'aether.timer': GameState.timeLeft,
+                        'aether.strikes': GameState.strikes,
+                        'aether.modules': solvedCount,
+                        'aether.reactor.temp': GameState.reactorTemp,
+                        'aether.phase.polarity': GameState.phasePolarity,
+                        'aether.hull': mission === 2 ? 0 : Math.max(0, 100 - GameState.strikes * 30),
+                        'aether.thrusters': (GameState.timeLeft <= 30 || GameState.strikes >= 2) ? 1 : 0,
+                        'aether.mission': mission,
+                        'aether.mod.wires': GameState.solved.wires ? 1 : 0,
+                        'aether.mod.button': GameState.solved.button ? 1 : 0,
+                        'aether.mod.simon': GameState.solved.simon ? 1 : 0,
+                        'aether.mod.keypad': GameState.solved.keypad ? 1 : 0
+                    }
+                });
+            }
+        };
+
+        /**
+         * ============================================================================
+         * CHAT DE TEXTO CON CONTROL EN TIERRA
+         * ----------------------------------------------------------------------------
+         * Usa el mismo servidor que la telemetría (ws://<host>/chat). Control en tierra
+         * escribe desde chat.html, que aparece dentro de Open MCT. Sin servidor no hay
+         * chat y el botón no aparece.
+         * ============================================================================
+         */
+        const Chat = {
+            socket: null,
+            url: null,
+            open: false,
+            unread: 0,
+            retryMs: 1000,
+            hasMessages: false,
+            messages: [], // últimos mensajes (los muestra el panel de muñeca del modo 3D)
+
+            init() {
+                if (!Telemetry.enabled) return;
+                const u = new URL(Telemetry.url);
+                u.pathname = '/chat';
+                u.search = '';
+                this.url = u.toString();
+
+                document.getElementById('chatToggle').onclick = () => this.setOpen(true);
+                document.getElementById('chatClose').onclick = () => this.setOpen(false);
+                document.getElementById('chatForm').onsubmit = (e) => {
+                    e.preventDefault();
+                    const input = document.getElementById('chatInput');
+                    if (this.send(input.value)) input.value = '';
+                };
+                this.renderEmpty();
+                this.setOpen(window.innerWidth >= 1280); // abierto en pantallas grandes
+                this.connect();
+            },
+
+            setOpen(open) {
+                this.open = open;
+                const panel = document.getElementById('chatPanel');
+                const toggle = document.getElementById('chatToggle');
+                panel.classList.toggle('hidden', !open);
+                panel.classList.toggle('flex', open);
+                toggle.classList.toggle('hidden', open);
+                toggle.classList.toggle('flex', !open);
+                if (open) {
+                    this.unread = 0;
+                    this.updateBadge();
+                    const log = document.getElementById('chatLog');
+                    log.scrollTop = log.scrollHeight;
+                }
+            },
+
+            updateBadge() {
+                const badge = document.getElementById('chatBadge');
+                badge.textContent = this.unread > 9 ? '9+' : String(this.unread);
+                badge.classList.toggle('hidden', this.unread === 0);
+                badge.classList.toggle('flex', this.unread > 0);
+            },
+
+            connect() {
+                try {
+                    this.socket = new WebSocket(this.url);
+                } catch (e) {
+                    this.scheduleRetry();
+                    return;
+                }
+                this.socket.onopen = () => {
+                    this.retryMs = 1000;
+                    document.getElementById('chatDot').className = 'w-2 h-2 rounded-full bg-emerald-400';
+                };
+                this.socket.onmessage = (event) => {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'history') {
+                        this.renderEmpty();
+                        data.messages.forEach((m) => this.render(m));
+                    } else if (data.type === 'chat') {
+                        this.render(data);
+                        if (data.from === 'TIERRA') {
+                            AudioEngine.playTone(1046, 'sine', 0.12, 0.06);
+                            if (!this.open) {
+                                this.unread++;
+                                this.updateBadge();
+                            }
+                        }
+                    }
+                };
+                this.socket.onclose = () => {
+                    document.getElementById('chatDot').className = 'w-2 h-2 rounded-full bg-red-500';
+                    this.scheduleRetry();
+                };
+                this.socket.onerror = () => {};
+            },
+
+            scheduleRetry() {
+                setTimeout(() => this.connect(), this.retryMs);
+                this.retryMs = Math.min(this.retryMs * 2, 15000);
+            },
+
+            send(text) {
+                text = text.trim();
+                if (!text || !this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+                this.socket.send(JSON.stringify({ from: 'ASTRONAUTA', text }));
+                return true;
+            },
+
+            renderEmpty() {
+                this.hasMessages = false;
+                this.messages = [];
+                document.getElementById('chatLog').innerHTML =
+                    '<p class="text-slate-500 italic text-center pt-6">Sin mensajes.<br>Úsalo si no pueden hablar por voz.</p>';
+            },
+
+            render(msg) {
+                this.messages.push(msg);
+                if (this.messages.length > 20) this.messages.shift();
+                const log = document.getElementById('chatLog');
+                if (!this.hasMessages) {
+                    log.innerHTML = '';
+                    this.hasMessages = true;
+                }
+                const mine = msg.from === 'ASTRONAUTA';
+                const el = document.createElement('div');
+                const who = document.createElement('span');
+                who.className = `font-bold ${mine ? 'text-cyan-400' : 'text-amber-400'}`;
+                who.textContent = mine ? 'TÚ: ' : `TIERRA${msg.name ? ' · ' + msg.name : ''}: `;
+                const text = document.createElement('span');
+                text.className = 'text-slate-200 break-words';
+                text.textContent = msg.text; // textContent: nunca se interpreta como HTML
+                el.append(who, text);
+                log.appendChild(el);
+                log.scrollTop = log.scrollHeight;
+            }
+        };
+
+        /**
+         * ============================================================================
+         * MODO 2D / 3D
+         * ----------------------------------------------------------------------------
+         *  2D: el tablero de siempre, con los 4 módulos a la vista.
+         *  3D: el astronauta camina por la nave (ship3d.js). Cada módulo está en su
+         *      propia sala; al usar una consola se abre ESTE mismo tablero mostrando
+         *      solo el módulo de esa sala. Las reglas y el tiempo son los mismos.
+         * ============================================================================
+         */
+        const MODULE_BOX = { wires: 'modWires', button: 'modButton', simon: 'modSimon', keypad: 'modKeypad' };
+
+        const ViewMode = {
+            mode: '2d',
+            station: null, // módulo abierto en 3D
+
+            init() {
+                document.getElementById('viewToggle').onclick = () => this.set(this.mode === '3d' ? '2d' : '3d');
+                document.getElementById('closeStationBtn').onclick = () => this.closeStation();
+                document.getElementById('stationBackdrop').onclick = () => this.closeStation();
+                document.getElementById('cameraBtn').onclick = () => window.Ship3D && window.Ship3D.toggleCamera && window.Ship3D.toggleCamera();
+                window.addEventListener('keydown', (e) => {
+                    if (!this.station || e.target.closest('input, textarea')) return;
+                    if (e.key === 'Escape' || ((e.key === 'e' || e.key === 'E') && !e.repeat)) {
+                        e.preventDefault();
+                        e.stopImmediatePropagation();
+                        this.closeStation();
+                    }
+                }, true);
+
+                let saved = null;
+                try { saved = localStorage.getItem('aether.view'); } catch (e) {}
+                this.renderToggle();
+                if (saved === '3d') this.set('3d');
+            },
+
+            available() {
+                return Boolean(window.Ship3D && window.Ship3D.available);
+            },
+
+            set(mode) {
+                if (mode === '3d' && !this.available()) {
+                    const reason = (window.Ship3D && window.Ship3D.reason) ||
+                        'El modo 3D necesita el servidor (npm start) y abrir el tablero desde http://…/tablero.html';
+                    alert(reason);
+                    return;
+                }
+                this.closeStation(true);
+                this.mode = mode;
+                document.body.classList.toggle('mode-3d', mode === '3d');
+                if (mode === '3d') {
+                    window.Ship3D.start();
+                } else if (window.Ship3D && window.Ship3D.stop) {
+                    window.Ship3D.stop();
+                    const prompt = document.getElementById('interactPrompt');
+                    prompt.classList.add('hidden');
+                    prompt.classList.remove('flex');
+                }
+                try { localStorage.setItem('aether.view', mode); } catch (e) {}
+                this.renderToggle();
+            },
+
+            renderToggle() {
+                document.querySelectorAll('#viewToggle [data-view]').forEach((el) => {
+                    const active = el.dataset.view === this.mode;
+                    el.className = `px-2 sm:px-2.5 py-2 ${active ? 'bg-cyan-500/25 text-cyan-300' : 'text-slate-500'}`;
+                });
+            },
+
+            // Llamado desde ship3d.js al presionar E junto a una consola
+            openStation(key) {
+                if (this.mode !== '3d' || GameState.isOver || GameState.solved[key]) return;
+                this.station = key;
+                const board = document.getElementById('repairBoard');
+                board.classList.add('focus-mode');
+                Object.entries(MODULE_BOX).forEach(([k, id]) => {
+                    document.getElementById(id).classList.toggle('focused', k === key);
+                });
+                document.body.classList.add('station-open');
+                window.Ship3D.setInputEnabled(false);
+            },
+
+            closeStation(silent) {
+                if (!this.station && silent) return;
+                this.station = null;
+                const board = document.getElementById('repairBoard');
+                board.classList.remove('focus-mode');
+                Object.values(MODULE_BOX).forEach((id) => document.getElementById(id).classList.remove('focused'));
+                document.body.classList.remove('station-open');
+                if (this.mode === '3d' && window.Ship3D && window.Ship3D.setInputEnabled) window.Ship3D.setInputEnabled(true);
+            },
+
+            // Módulo reparado: en 3D se vuelve a la nave tras un momento
+            onModuleSolved(key) {
+                if (this.mode === '3d' && this.station === key) setTimeout(() => {
+                    if (this.station === key) this.closeStation();
+                }, 900);
+            },
+
+            onNewGame() {
+                this.closeStation(true);
+                if (window.Ship3D && window.Ship3D.resetPlayer) window.Ship3D.resetPlayer();
+                if (this.mode === '3d' && window.Ship3D.setInputEnabled) window.Ship3D.setInputEnabled(true);
+            },
+
+            onGameOver() {
+                this.closeStation(true);
+                if (this.mode === '3d' && window.Ship3D && window.Ship3D.setInputEnabled) window.Ship3D.setInputEnabled(false);
+            }
+        };
+        window.ViewMode = ViewMode;
+        window.GameState = GameState; // ship3d.js lee el estado del juego
+
+        // Sacudir el tablero al cometer un error (manteniendo el centrado)
+        function shakeBoard() {
+            const board = document.getElementById('repairBoard');
+            const steps = ['scale(1.02)', 'rotate(-1deg)', 'rotate(1deg)', ''];
+            steps.forEach((s, i) => setTimeout(() => {
+                board.style.transform = `translate(-50%, -50%) ${s}`.trim();
+            }, i * 70));
+        }
+
+        /**
+         * ============================================================================
+         * RADIO DE VOZ DEL ASTRONAUTA (ver radio.js)
+         * ----------------------------------------------------------------------------
+         * Botón "ACTIVAR RADIO" -> pide el micrófono. Luego se mantiene presionado el
+         * botón 🎙 (o la tecla T) para hablar con control en tierra.
+         * ============================================================================
+         */
+        const RadioUI = {
+            radio: null,
+
+            init() {
+                if (!Telemetry.enabled || !window.AetherRadio) return; // sin servidor no hay radio
+                const u = new URL(Telemetry.url);
+                u.pathname = '/rtc';
+                u.search = '';
+                this.radio = new AetherRadio({ url: u.toString(), role: 'ASTRONAUTA', onChange: (r) => this.render(r) });
+
+                const enableBtn = document.getElementById('radioEnableBtn');
+                enableBtn.classList.remove('hidden');
+                enableBtn.classList.add('flex');
+                enableBtn.onclick = () => this.radio.enable();
+                AetherRadio.bindPushToTalk(this.radio, document.getElementById('pttBtn'));
+            },
+
+            render(r) {
+                const enableBtn = document.getElementById('radioEnableBtn');
+                const ptt = document.getElementById('pttBtn');
+                const showEnable = r.state === 'off' || r.state === 'error';
+                enableBtn.classList.toggle('hidden', !showEnable);
+                enableBtn.classList.toggle('flex', showEnable);
+                ptt.classList.toggle('hidden', r.state !== 'ready');
+                ptt.classList.toggle('flex', r.state === 'ready');
+                ptt.classList.toggle('on', r.talking);
+                document.getElementById('pttLabel').textContent = r.talking ? 'TRANSMITIENDO…' : 'MANTÉN [T] PARA HABLAR';
+
+                const talkers = r.talkers();
+                const banner = document.getElementById('onAirBanner');
+                banner.classList.toggle('hidden', talkers.length === 0);
+                banner.textContent = talkers.length ? `🔊 ${talkers.map(AetherRadio.label).join(', ')} HABLANDO` : '';
+
+                const notice = document.getElementById('radioNotice');
+                let text = '';
+                if (r.state === 'connecting') text = '📻 Conectando la radio…';
+                else if (r.state === 'error') text = `📻 ${r.error}`;
+                else if (r.state === 'listen') text = `📻 Solo escuchas: ${r.micError}`;
+                notice.textContent = text;
+                notice.classList.toggle('hidden', !text || talkers.length > 0);
+            }
+        };
+
+        /**
+         * Puente de comunicaciones para el PANEL DE MUÑECA del modo 3D (ship3d/handpad.js):
+         * el astronauta abre el chat, activa la radio, habla, y silencia voz o música desde ahí.
+         */
+        window.AetherComms = {
+            get online() { return Boolean(Chat.url); },
+            chat() {
+                return { available: Boolean(Chat.url), open: Chat.open, unread: Chat.unread, messages: Chat.messages.slice(-3) };
+            },
+            setChatOpen(open) {
+                if (!Chat.url) return;
+                Chat.setOpen(open);
+                if (open) setTimeout(() => document.getElementById('chatInput').focus(), 0);
+            },
+            radio() {
+                const r = RadioUI.radio;
+                if (!r) return { state: 'none', talking: false, talkers: [] };
+                return { state: r.state, talking: r.talking, talkers: r.talkers().map(AetherRadio.label), error: r.error || r.micError || '' };
+            },
+            enableRadio() { if (RadioUI.radio) RadioUI.radio.enable(); },
+            setTalking(on) { if (RadioUI.radio && RadioUI.radio.state === 'ready') RadioUI.radio.setTalking(on); },
+            get voiceOn() { return Boolean(window.AetherVoice && AetherVoice.enabled); },
+            toggleVoice() { if (window.AetherVoice) AetherVoice.setEnabled(!AetherVoice.enabled); },
+            get musicOn() { return Boolean(window.AetherMusic && AetherMusic.volume.music > 0); },
+            toggleMusic() {
+                if (!window.AetherMusic) return;
+                const v = AetherMusic.volume.music;
+                if (v > 0) { this._music = v; AetherMusic.setVolume('music', 0); }
+                else AetherMusic.setVolume('music', this._music || 0.7);
+                const slider = document.getElementById('volMusic');
+                if (slider) slider.value = Math.round(AetherMusic.volume.music * 100);
+            }
+        };
+
+        /**
+         * ============================================================================
+         * FONDO ESPACIAL ANIMADO (CANVAS CON ESTRELLAS, PLANETA Y PARTÍCULAS)
+         * ============================================================================
+         */
+        const canvas = document.getElementById('spaceCanvas');
+        const ctx = canvas.getContext('2d');
+        let stars = [];
+        let explosionParticles = [];
+        let isExploded = false;
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            initStars();
+        }
+
+        function initStars() {
+            stars = [];
+            const count = Math.floor((canvas.width * canvas.height) / 6000);
+            for (let i = 0; i < count; i++) {
+                stars.push({
+                    x: Math.random() * canvas.width,
+                    y: Math.random() * canvas.height,
+                    size: Math.random() * 1.8 + 0.3,
+                    speed: Math.random() * 0.4 + 0.05,
+                    alpha: Math.random() * 0.8 + 0.2
+                });
+            }
+        }
+
+        function triggerSpaceExplosion() {
+            isExploded = true;
+            explosionParticles = [];
+            for (let i = 0; i < 150; i++) {
+                explosionParticles.push({
+                    x: canvas.width * 0.4,
+                    y: canvas.height * 0.4,
+                    vx: (Math.random() - 0.5) * 18,
+                    vy: (Math.random() - 0.5) * 18,
+                    size: Math.random() * 8 + 2,
+                    color: ['#ef4444', '#f97316', '#facc15', '#ffffff'][Math.floor(Math.random() * 4)],
+                    life: 1.0
+                });
+            }
+        }
+
+        function animateSpace() {
+            ctx.fillStyle = '#03060c';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Nebulosa sutil de fondo
+            const grad = ctx.createRadialGradient(canvas.width * 0.3, canvas.height * 0.35, 30, canvas.width * 0.3, canvas.height * 0.35, canvas.width * 0.5);
+            grad.addColorStop(0, 'rgba(14, 116, 144, 0.14)');
+            grad.addColorStop(0.5, 'rgba(30, 27, 75, 0.08)');
+            grad.addColorStop(1, 'rgba(3, 6, 12, 0)');
+            ctx.fillStyle = grad;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Planeta lejano visible por la escotilla superior izquierda
+            const planetX = canvas.width * 0.22;
+            const planetY = canvas.height * 0.32;
+            const planetR = Math.min(canvas.width, canvas.height) * 0.16;
+            
+            const pGrad = ctx.createRadialGradient(planetX - planetR * 0.3, planetY - planetR * 0.3, planetR * 0.1, planetX, planetY, planetR);
+            pGrad.addColorStop(0, '#38bdf8');
+            pGrad.addColorStop(0.6, '#0369a1');
+            pGrad.addColorStop(1, '#082f49');
+            ctx.beginPath();
+            ctx.arc(planetX, planetY, planetR, 0, Math.PI * 2);
+            ctx.fillStyle = pGrad;
+            ctx.fill();
+
+            // Estrellas en movimiento
+            stars.forEach(s => {
+                s.x -= s.speed;
+                if (s.x < 0) s.x = canvas.width;
+                ctx.fillStyle = `rgba(255, 255, 255, ${s.alpha})`;
+                ctx.beginPath();
+                ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+                ctx.fill();
+            });
+
+            // Partículas de explosión si la nave estalla
+            if (isExploded) {
+                explosionParticles.forEach(p => {
+                    p.x += p.vx;
+                    p.y += p.vy;
+                    p.life -= 0.012;
+                    if (p.life > 0) {
+                        ctx.globalAlpha = p.life;
+                        ctx.fillStyle = p.color;
+                        ctx.beginPath();
+                        ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+                        ctx.fill();
+                        ctx.globalAlpha = 1;
+                    }
+                });
+            }
+
+            requestAnimationFrame(animateSpace);
+        }
+
+        window.addEventListener('resize', resizeCanvas);
+        resizeCanvas();
+        animateSpace();
+
+        /**
+         * ============================================================================
+         * RETROVISOR DE LA NAVE (DIBUJA EL FUSELAJE TRASERO Y PROPULSORES EN VIVO)
+         * ============================================================================
+         */
+        const rearCanvas = document.getElementById('rearviewCanvas');
+        const rCtx = rearCanvas.getContext('2d');
+        let rearStars = [];
+        let thrusterPulse = 0;
+
+        function initRearview() {
+            rearCanvas.width = rearCanvas.offsetWidth || 256;
+            rearCanvas.height = rearCanvas.offsetHeight || 80;
+            rearStars = [];
+            for (let i = 0; i < 35; i++) {
+                rearStars.push({
+                    x: (Math.random() - 0.5) * rearCanvas.width,
+                    y: (Math.random() - 0.5) * rearCanvas.height,
+                    z: Math.random() * rearCanvas.width
+                });
+            }
+        }
+
+        function animateRearview() {
+            const w = rearCanvas.width;
+            const h = rearCanvas.height;
+            const cx = w / 2;
+            const cy = h / 2;
+            thrusterPulse += 0.15;
+
+            rCtx.fillStyle = '#030712';
+            rCtx.fillRect(0, 0, w, h);
+
+            // Estrellas alejándose (perspectiva hacia atrás)
+            rCtx.fillStyle = '#e2e8f0';
+            rearStars.forEach(s => {
+                s.z += 2.5;
+                if (s.z >= w) {
+                    s.z = 1;
+                    s.x = (Math.random() - 0.5) * w;
+                    s.y = (Math.random() - 0.5) * h;
+                }
+                const sx = cx + (s.x / s.z) * (w * 0.6);
+                const sy = cy + (s.y / s.z) * (h * 0.6);
+                const size = Math.max(0.5, (s.z / w) * 2);
+                rCtx.fillRect(sx, sy, size, size);
+            });
+
+            // Dibujar la silueta trasera de nuestra nave espacial U.S.S. Aether en el espejo
+            const shipY = cy + 6 + Math.sin(thrusterPulse * 0.3) * 1.5;
+
+            // Alas traseras y estabilizadores
+            rCtx.fillStyle = '#1e293b';
+            rCtx.strokeStyle = '#64748b';
+            rCtx.lineWidth = 1.5;
+            rCtx.beginPath();
+            rCtx.moveTo(cx - 68, shipY + 14);
+            rCtx.lineTo(cx - 25, shipY - 6);
+            rCtx.lineTo(cx + 25, shipY - 6);
+            rCtx.lineTo(cx + 68, shipY + 14);
+            rCtx.lineTo(cx + 35, shipY + 18);
+            rCtx.lineTo(cx - 35, shipY + 18);
+            rCtx.closePath();
+            rCtx.fill();
+            rCtx.stroke();
+
+            // Estabilizador dorsal vertical
+            rCtx.fillStyle = '#334155';
+            rCtx.beginPath();
+            rCtx.moveTo(cx - 5, shipY - 4);
+            rCtx.lineTo(cx, shipY - 22);
+            rCtx.lineTo(cx + 5, shipY - 4);
+            rCtx.closePath();
+            rCtx.fill();
+            rCtx.stroke();
+
+            // Fuselaje central de popa
+            rCtx.fillStyle = '#0f172a';
+            rCtx.beginPath();
+            rCtx.ellipse(cx, shipY + 5, 28, 12, 0, 0, Math.PI * 2);
+            rCtx.fill();
+            rCtx.stroke();
+
+            // Propulsores gemelos de plasma (parpadean rojo si hay alarma crítica)
+            const isCritical = GameState.timeLeft <= 30 || GameState.strikes >= 2;
+            const flameColor = isCritical ? '#ef4444' : '#38bdf8';
+            const coreColor = isCritical ? '#fef08a' : '#e0f2fe';
+            const glowRadius = 9 + Math.sin(thrusterPulse) * 2.5;
+
+            [-13, 13].forEach(offsetX => {
+                const px = cx + offsetX;
+                const py = shipY + 7;
+
+                // Halo de plasma
+                const pGrad = rCtx.createRadialGradient(px, py, 1, px, py, glowRadius * 1.8);
+                pGrad.addColorStop(0, coreColor);
+                pGrad.addColorStop(0.4, flameColor);
+                pGrad.addColorStop(1, 'transparent');
+                rCtx.fillStyle = pGrad;
+                rCtx.beginPath();
+                rCtx.arc(px, py, glowRadius * 1.8, 0, Math.PI * 2);
+                rCtx.fill();
+
+                // Tobera del motor
+                rCtx.fillStyle = '#020617';
+                rCtx.strokeStyle = '#94a3b8';
+                rCtx.beginPath();
+                rCtx.arc(px, py, 5.5, 0, Math.PI * 2);
+                rCtx.fill();
+                rCtx.stroke();
+
+                // Núcleo incandescente
+                rCtx.fillStyle = coreColor;
+                rCtx.beginPath();
+                rCtx.arc(px, py, 3, 0, Math.PI * 2);
+                rCtx.fill();
+            });
+
+            // Luces estroboscópicas en las puntas de las alas
+            if (Math.floor(thrusterPulse) % 4 === 0) {
+                rCtx.fillStyle = '#ef4444';
+                rCtx.beginPath();
+                rCtx.arc(cx - 66, shipY + 13, 2, 0, Math.PI * 2);
+                rCtx.fill();
+
+                rCtx.fillStyle = '#22c55e';
+                rCtx.beginPath();
+                rCtx.arc(cx + 66, shipY + 13, 2, 0, Math.PI * 2);
+                rCtx.fill();
+            }
+
+            requestAnimationFrame(animateRearview);
+        }
+
+        window.addEventListener('resize', initRearview);
+        initRearview();
+        animateRearview();
+
+        /**
+         * ============================================================================
+         * LÓGICA DEL JUEGO DE DESACTIVACIÓN / REPARACIÓN (STYLE KTANE)
+         * ============================================================================
+         */
+
+        // Generar metadatos aleatorios de la nave
+        function generateShipMetadata() {
+            const letters = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
+            const l1 = letters[Math.floor(Math.random() * letters.length)];
+            const l2 = letters[Math.floor(Math.random() * letters.length)];
+            const n1 = Math.floor(Math.random() * 10);
+            const n2 = Math.floor(Math.random() * 10);
+            const lastDigit = Math.floor(Math.random() * 10);
+            
+            GameState.serial = `${l1}${n1}${l2}-${n2}${lastDigit}`;
+            GameState.hasVowel = /[AEIOU]/.test(GameState.serial);
+            GameState.lastDigitOdd = (lastDigit % 2 !== 0);
+            GameState.batteries = Math.floor(Math.random() * 3) + 1;
+            // 📡 Solo visible en Open MCT. Sin telemetría nadie podría verla: queda POSITIVA.
+            GameState.phasePolarity = Telemetry.enabled ? Math.floor(Math.random() * 2) : 0;
+
+            document.getElementById('serialNumberDisplay').textContent = GameState.serial;
+            document.getElementById('batteryCountDisplay').textContent = `${GameState.batteries} AA`;
+        }
+
+        // Registrar un error (Strike)
+        function registerStrike(reason) {
+            if (GameState.isOver) return;
+            GameState.strikes++;
+            AudioEngine.strike();
+            Telemetry.event(`STRIKE ${GameState.strikes}/${GameState.maxStrikes}: ${reason}`);
+
+            shakeBoard();
+
+            // Encender luz de error
+            const strikeEl = document.getElementById(`strike${GameState.strikes}`);
+            if (strikeEl) {
+                strikeEl.classList.remove('bg-black', 'text-transparent');
+                strikeEl.classList.add('bg-red-600', 'text-white', 'border-red-400', 'shadow-[0_0_8px_#ef4444]');
+            }
+
+            if (GameState.strikes >= GameState.maxStrikes) {
+                endGame(false, `Demasiados errores críticos (${reason}). El reactor colapsó.`);
+            } else {
+                Announcer.strike(GameState.strikes);
+                if (window.AetherMusic) AetherMusic.sfx.strike();
+                Soundtrack.update();
+            }
+        }
+
+        // Marcar módulo como reparado
+        function markModuleSolved(modKey, ledId) {
+            if (GameState.solved[modKey]) return;
+            GameState.solved[modKey] = true;
+            AudioEngine.success();
+            Telemetry.event(`MÓDULO REPARADO: ${MODULE_NAMES[modKey]}`);
+            ViewMode.onModuleSolved(modKey);
+
+            const led = document.getElementById(ledId);
+            led.classList.remove('bg-zinc-900', 'border-zinc-600');
+            led.classList.add('bg-emerald-400', 'border-emerald-200', 'shadow-[0_0_10px_#34d399]');
+
+            const totalSolved = Object.values(GameState.solved).filter(Boolean).length;
+            document.getElementById('modulesProgress').textContent = `MÓDULOS DESACTIVADOS: ${totalSolved} / 4`;
+            Announcer.solved(modKey, totalSolved);
+
+            if (totalSolved === 4) {
+                endGame(true, '¡Todos los sistemas estabilizados! La nave U.S.S. Aether vuelve a estar bajo control.');
+            }
+        }
+
+        // --- MÓDULO 1: CABLES ---
+        function setupWiresModule() {
+            const colors = [
+                { name: 'red', hex: '#ef4444', label: 'ROJO' },
+                { name: 'blue', hex: '#3b82f6', label: 'AZUL' },
+                { name: 'yellow', hex: '#eab308', label: 'AMARILLO' },
+                { name: 'white', hex: '#f8fafc', label: 'BLANCO' }
+            ];
+            GameState.wiresData = [];
+            for (let i = 0; i < 4; i++) {
+                GameState.wiresData.push({
+                    ...colors[Math.floor(Math.random() * colors.length)],
+                    cut: false
+                });
+            }
+
+            // Calcular respuesta correcta según el Manual del Experto
+            const redIndices = GameState.wiresData.map((w, i) => w.name === 'red' ? i : -1).filter(i => i !== -1);
+            const blueCount = GameState.wiresData.filter(w => w.name === 'blue').length;
+
+            if (redIndices.length > 1 && GameState.lastDigitOdd) {
+                GameState.correctWireIndex = redIndices[redIndices.length - 1];
+            } else if (GameState.wiresData[3].name === 'yellow' && redIndices.length === 0) {
+                GameState.correctWireIndex = 0;
+            } else if (blueCount === 1) {
+                GameState.correctWireIndex = 0;
+            } else {
+                GameState.correctWireIndex = 1;
+            }
+
+            renderWires();
+        }
+
+        function renderWires() {
+            const container = document.getElementById('wiresList');
+            container.innerHTML = '';
+            GameState.wiresData.forEach((wire, idx) => {
+                const btn = document.createElement('button');
+                btn.className = 'w-full h-3.5 rounded-full relative flex items-center justify-center transition-transform hover:scale-[1.02] cursor-pointer focus:outline-none';
+                btn.style.backgroundColor = wire.cut ? 'transparent' : wire.hex;
+                btn.style.boxShadow = wire.cut ? 'none' : '0 2px 4px rgba(0,0,0,0.6)';
+
+                if (wire.cut) {
+                    btn.innerHTML = `
+                        <div class="w-[42%] h-2.5 rounded-l-full" style="background:${wire.hex}"></div>
+                        <div class="w-[16%] text-[9px] text-slate-500 font-bold">⚡</div>
+                        <div class="w-[42%] h-2.5 rounded-r-full" style="background:${wire.hex}"></div>
+                    `;
+                }
+
+                btn.onclick = () => {
+                    if (GameState.isOver || GameState.solved.wires || wire.cut) return;
+                    wire.cut = true;
+                    AudioEngine.cut();
+                    renderWires();
+
+                    if (idx === GameState.correctWireIndex) {
+                        markModuleSolved('wires', 'ledWires');
+                    } else {
+                        registerStrike('Cable incorrecto cortado');
+                    }
+                };
+                container.appendChild(btn);
+            });
+        }
+
+        // --- MÓDULO 2: BOTÓN DEL NÚCLEO ---
+        function setupButtonModule() {
+            const configs = [
+                { color: 'blue', bg: 'bg-blue-600', label: 'ABORTAR' },
+                { color: 'red', bg: 'bg-red-600', label: 'DETONAR' },
+                { color: 'white', bg: 'bg-slate-200 text-slate-900', label: 'PURGAR' },
+                { color: 'yellow', bg: 'bg-amber-500 text-slate-950', label: 'MANTENER' }
+            ];
+            const strips = [
+                { name: 'blue', class: 'bg-blue-500 shadow-[0_0_12px_#3b82f6]', digit: '4' },
+                { name: 'yellow', class: 'bg-amber-400 shadow-[0_0_12px_#facc15]', digit: '5' },
+                { name: 'red', class: 'bg-red-500 shadow-[0_0_12px_#ef4444]', digit: '1' }
+            ];
+
+            const chosen = configs[Math.floor(Math.random() * configs.length)];
+            const chosenStrip = strips[Math.floor(Math.random() * strips.length)];
+
+            // Evaluar regla del manual
+            const mustHold = (chosen.color === 'blue' && chosen.label === 'ABORTAR') ||
+                             (chosen.label === 'DETONAR' && GameState.batteries > 1);
+
+            GameState.buttonData = {
+                ...chosen,
+                strip: chosenStrip,
+                mustHold
+            };
+
+            const btn = document.getElementById('coreButton');
+            btn.className = `w-14 h-14 md:w-16 md:h-16 rounded-full border-4 border-slate-600 shadow-lg font-orbitron font-bold text-[10px] md:text-xs flex items-center justify-center transition-transform active:scale-95 cursor-pointer select-none ${chosen.bg}`;
+            btn.textContent = chosen.label;
+
+            const stripEl = document.getElementById('buttonStrip');
+            stripEl.className = 'w-3 h-12 rounded-full bg-slate-900 border border-slate-700 transition-colors duration-150';
+
+            // Eventos mouse y touch para mantener pulsado o soltar rápido
+            const startPress = (e) => {
+                e.preventDefault();
+                if (GameState.isOver || GameState.solved.button) return;
+                GameState.isHoldingButton = true;
+                // 📡 Regla de control en tierra: cuenta la temperatura del momento en que se presiona
+                GameState.buttonPressedHot = Telemetry.enabled && GameState.reactorTemp >= REACTOR_ALERT_K;
+                GameState.buttonHoldTimer = setTimeout(() => {
+                    if (GameState.isHoldingButton) {
+                        stripEl.className = `w-3 h-12 rounded-full border border-white/50 transition-colors duration-150 ${chosenStrip.class}`;
+                    }
+                }, 350);
+            };
+
+            const endPress = (e) => {
+                e.preventDefault();
+                if (!GameState.isHoldingButton || GameState.isOver || GameState.solved.button) return;
+                const wasLongPress = stripEl.className.includes('shadow-');
+                clearTimeout(GameState.buttonHoldTimer);
+                GameState.isHoldingButton = false;
+                stripEl.className = 'w-3 h-12 rounded-full bg-slate-900 border border-slate-700 transition-colors duration-150';
+
+                // Reactor >= 1400 K al presionar: siempre pulsación rápida, ignora el resto
+                const mustHold = GameState.buttonData.mustHold && !GameState.buttonPressedHot;
+
+                if (!mustHold) {
+                    // Debía ser pulsación rápida
+                    if (!wasLongPress) {
+                        markModuleSolved('button', 'ledButton');
+                    } else if (GameState.buttonPressedHot) {
+                        registerStrike(`Reactor sobre ${REACTOR_ALERT_K} K: había que pulsar y soltar rápido`);
+                    } else {
+                        registerStrike('Debías pulsar y soltar rápido el botón');
+                    }
+                } else {
+                    // Debía mantener y soltar con el dígito correcto en el reloj
+                    const currentTimerText = document.getElementById('timerDisplay').textContent;
+                    if (wasLongPress && currentTimerText.includes(GameState.buttonData.strip.digit)) {
+                        markModuleSolved('button', 'ledButton');
+                    } else {
+                        registerStrike(`Soltaste el botón en el momento equivocado (requería dígito ${GameState.buttonData.strip.digit})`);
+                    }
+                }
+            };
+
+            btn.onmousedown = startPress;
+            btn.onmouseup = endPress;
+            // [FIX] Si el mouse salía del botón mientras se mantenía pulsado, el mouseup nunca
+            // llegaba y el botón quedaba "pegado". Salir del botón cuenta como soltarlo.
+            btn.onmouseleave = endPress;
+            btn.ontouchstart = startPress;
+            btn.ontouchend = endPress;
+            btn.ontouchcancel = endPress;
+        }
+
+        // --- MÓDULO 3: ESCUDO TÉRMICO (SIMÓN) ---
+        function setupSimonModule() {
+            const colors = ['red', 'blue', 'green', 'yellow'];
+            GameState.simonSequence = [
+                colors[Math.floor(Math.random() * 4)],
+                colors[Math.floor(Math.random() * 4)],
+                colors[Math.floor(Math.random() * 4)]
+            ];
+            GameState.simonUserStep = 0;
+
+            if (GameState.simonInterval) clearInterval(GameState.simonInterval);
+
+            let flashIdx = 0;
+            GameState.simonInterval = setInterval(() => {
+                if (GameState.isOver || GameState.solved.simon) {
+                    clearInterval(GameState.simonInterval);
+                    return;
+                }
+                if (flashIdx < GameState.simonSequence.length) {
+                    flashSimonColor(GameState.simonSequence[flashIdx]);
+                    flashIdx++;
+                } else {
+                    flashIdx = 0; // Pausa de 1 ciclo antes de repetir secuencia
+                }
+            }, 900);
+
+            document.querySelectorAll('.simon-btn').forEach(btn => {
+                btn.onclick = () => {
+                    if (GameState.isOver || GameState.solved.simon) return;
+                    const clickedColor = btn.dataset.color;
+                    flashSimonColor(clickedColor);
+
+                    const currentTargetFlash = GameState.simonSequence[GameState.simonUserStep];
+                    const expectedColor = translateSimonColor(currentTargetFlash);
+
+                    if (clickedColor === expectedColor) {
+                        GameState.simonUserStep++;
+                        if (GameState.simonUserStep >= GameState.simonSequence.length) {
+                            markModuleSolved('simon', 'ledSimon');
+                        }
+                    } else {
+                        GameState.simonUserStep = 0;
+                        registerStrike('Secuencia de escudo incorrecta');
+                    }
+                };
+            });
+        }
+
+        function flashSimonColor(color) {
+            const btn = document.querySelector(`.simon-btn[data-color="${color}"]`);
+            if (!btn) return;
+            // [FIX] Antes se agregaba bg-red-400 encima de bg-red-950; en Tailwind gana la
+            // clase que aparece después en la hoja (950), así que el color del destello no se veía.
+            // Se usa estilo inline, que siempre tiene prioridad.
+            const glowMap = {
+                red: ['#f87171', '#f87171'],
+                blue: ['#60a5fa', '#60a5fa'],
+                yellow: ['#fcd34d', '#fcd34d'],
+                green: ['#34d399', '#34d399']
+            };
+            const [bg, glow] = glowMap[color];
+            btn.style.backgroundColor = bg;
+            btn.style.boxShadow = `0 0 15px ${glow}`;
+            clearTimeout(btn._flashTimeout);
+            btn._flashTimeout = setTimeout(() => {
+                btn.style.backgroundColor = '';
+                btn.style.boxShadow = '';
+            }, 350);
+        }
+
+        function translateSimonColor(flashColor) {
+            const vowelMap = { red: 'blue', blue: 'red', green: 'yellow', yellow: 'green' };
+            const noVowelMap = { red: 'blue', blue: 'yellow', green: 'green', yellow: 'red' };
+            return GameState.hasVowel ? vowelMap[flashColor] : noVowelMap[flashColor];
+        }
+
+        // --- MÓDULO 4: SINTONIZACIÓN DE FASE (SÍMBOLOS) ---
+        function setupKeypadModule() {
+            const freq = Math.floor(Math.random() * 800) + 100; // 100 a 900 Hz
+            document.getElementById('freqDisplay').textContent = `FREQ: ${freq} Hz`;
+
+            let targetSymbols = [];
+            let allSymbols = [];
+
+            if (freq < 300) {
+                targetSymbols = ['Ω', 'Δ', 'Ψ'];
+                allSymbols = ['Ω', 'Δ', 'Ψ', 'Σ'];
+            } else if (freq <= 600) {
+                targetSymbols = ['Σ', 'Ω', 'Θ'];
+                allSymbols = ['Σ', 'Ω', 'Θ', 'Δ'];
+            } else {
+                targetSymbols = ['Ψ', 'Θ', 'Δ'];
+                allSymbols = ['Ψ', 'Θ', 'Δ', 'Ω'];
+            }
+
+            // 📡 Polaridad NEGATIVA (solo visible en Open MCT): el orden se invierte
+            if (GameState.phasePolarity === 1) {
+                targetSymbols.reverse();
+            }
+
+            // Mezclar botones visualmente
+            // [FIX] sort(() => Math.random() - 0.5) da una mezcla sesgada; Fisher-Yates es uniforme
+            for (let i = allSymbols.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [allSymbols[i], allSymbols[j]] = [allSymbols[j], allSymbols[i]];
+            }
+            GameState.keypadTarget = targetSymbols;
+            GameState.keypadStep = 0;
+
+            const grid = document.getElementById('keypadGrid');
+            grid.innerHTML = '';
+
+            allSymbols.forEach(sym => {
+                const btn = document.createElement('button');
+                btn.className = 'bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded text-amber-300 font-bold text-sm md:text-base flex items-center justify-center transition cursor-pointer';
+                btn.textContent = sym;
+
+                btn.onclick = () => {
+                    if (GameState.isOver || GameState.solved.keypad) return;
+                    if (sym === GameState.keypadTarget[GameState.keypadStep]) {
+                        btn.classList.remove('bg-slate-800', 'text-amber-300');
+                        btn.classList.add('bg-emerald-900/80', 'border-emerald-400', 'text-emerald-300');
+                        GameState.keypadStep++;
+                        AudioEngine.playTone(440 + GameState.keypadStep * 110, 'sine', 0.1, 0.1);
+
+                        if (GameState.keypadStep >= GameState.keypadTarget.length) {
+                            markModuleSolved('keypad', 'ledKeypad');
+                        }
+                    } else {
+                        registerStrike('Símbolo de frecuencia incorrecto');
+                    }
+                };
+                grid.appendChild(btn);
+            });
+        }
+
+        /**
+         * ============================================================================
+         * CONTROL DEL TEMPORIZADOR Y CICLO DE PARTIDA
+         * ============================================================================
+         */
+        function startTimer() {
+            if (GameState.timerInterval) clearInterval(GameState.timerInterval);
+            updateTimerUI();
+
+            GameState.timerInterval = setInterval(() => {
+                if (GameState.isOver) return;
+                GameState.timeLeft--;
+                updateTimerUI();
+                Announcer.tick(GameState.timeLeft);
+                Soundtrack.update();
+
+                if (GameState.timeLeft <= 30) {
+                    AudioEngine.tick();
+                }
+
+                if (GameState.timeLeft <= 0) {
+                    endGame(false, 'Se agotó el tiempo. El reactor de la nave explotó en el espacio profundo.');
+                }
+            }, 1000);
+        }
+
+        function updateTimerUI() {
+            const mins = Math.floor(GameState.timeLeft / 60).toString().padStart(2, '0');
+            const secs = (GameState.timeLeft % 60).toString().padStart(2, '0');
+            const display = document.getElementById('timerDisplay');
+            display.textContent = `${mins}:${secs}`;
+
+            if (GameState.timeLeft <= 30) {
+                display.classList.add('alarm-flash');
+            } else {
+                display.classList.remove('alarm-flash');
+            }
+        }
+
+        function endGame(victory, message) {
+            if (GameState.isOver) return;
+            GameState.isOver = true;
+            GameState.victory = victory;
+            clearInterval(GameState.timerInterval);
+            clearInterval(GameState.simonInterval);
+            // La consola donde ocurrió (en 3D) se calcula antes de que onGameOver la cierre
+            Announcer.end(victory, GameState.strikes >= GameState.maxStrikes, Announcer.source());
+            ViewMode.onGameOver();
+
+            if (victory) {
+                document.getElementById('statusSubtitle').textContent = 'SISTEMAS NOMINALES - ÓRBITA ESTABLE';
+                document.getElementById('statusSubtitle').className = 'text-[11px] text-emerald-400 mt-0.5';
+                document.getElementById('hullStatusDot').className = 'w-3 h-3 rounded-full bg-emerald-400';
+            }
+            Telemetry.event(victory ? 'MISIÓN COMPLETADA: nave reparada' : `NAVE DESTRUIDA: ${message}`);
+            Telemetry.sample(); // muestra final inmediata
+
+            // Estadísticas de la partida para la pantalla final
+            const used = TOTAL_TIME - GameState.timeLeft;
+            document.getElementById('endStatTime').textContent = `${Math.floor(used / 60)}:${String(used % 60).padStart(2, '0')}`;
+            document.getElementById('endStatModules').textContent = `${Object.values(GameState.solved).filter(Boolean).length}/4`;
+            document.getElementById('endStatStrikes').textContent = `${GameState.strikes}/${GameState.maxStrikes}`;
+
+            // Cinemática (suspenso -> astronauta triste -> explosión de adentro hacia afuera) y luego el cartel
+            const cinema = window.AetherCinema;
+            const byStrikes = GameState.strikes >= GameState.maxStrikes;
+            if (cinema && cinema.available) {
+                const play = victory ? cinema.playVictory() : cinema.playDefeat({ byStrikes });
+                play.then(() => {
+                    cinema.holdBackdrop(victory);
+                    showEndCard(victory, message, true);
+                }).catch((err) => {
+                    console.warn('[cinemática]', err);
+                    cinema.hide();
+                    showEndCard(victory, message, false);
+                });
+            } else {
+                // Sin WebGL / sin servidor: la versión simple de siempre
+                if (window.AetherMusic) AetherMusic.play(victory ? 'victory' : 'defeat', { fade: 1 });
+                if (!victory) {
+                    AudioEngine.explosion();
+                    triggerSpaceExplosion();
+                }
+                setTimeout(() => showEndCard(victory, message, false), victory ? 600 : 1800);
+            }
+        }
+
+        function showEndCard(victory, message, overCinema) {
+            if (!GameState.isOver) return; // ya empezó otra partida
+            const modal = document.getElementById('endGameModal');
+            const card = document.getElementById('endGameCard');
+            const icon = document.getElementById('endGameIcon');
+            const title = document.getElementById('endGameTitle');
+            // Sobre la cinemática el fondo es translúcido para ver la nave (o sus restos)
+            modal.style.background = overCinema ? 'rgba(0,0,0,0.35)' : '';
+            const glass = overCinema ? 'bg-slate-950/80 backdrop-blur-md' : 'bg-slate-900';
+            if (victory) {
+                card.className = `max-w-md w-full ${glass} border-2 border-emerald-500 rounded-2xl p-6 shadow-2xl`;
+                icon.textContent = '🚀';
+                title.className = 'font-orbitron text-2xl font-black text-emerald-400 mb-2';
+                title.textContent = 'MISIÓN CUMPLIDA';
+            } else {
+                card.className = `max-w-md w-full ${glass} border-2 border-red-500 rounded-2xl p-6 shadow-2xl`;
+                icon.textContent = '💥';
+                title.className = 'font-orbitron text-2xl font-black text-red-500 mb-2';
+                title.textContent = 'MISIÓN FALLIDA';
+            }
+            document.getElementById('endGameDesc').textContent = message;
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        /**
+         * ============================================================================
+         * BANDA SONORA DURANTE LA PARTIDA (music.js)
+         * Tensión según tiempo, strikes y módulos; los últimos 10 s tienen su propio tema.
+         * ============================================================================
+         */
+        const Soundtrack = {
+            update() {
+                const M = window.AetherMusic;
+                if (!M || GameState.isOver) return;
+                const t = GameState.timeLeft;
+                if (t <= 10) {
+                    if (M.current !== 'final') M.play('final');
+                    return;
+                }
+                const solved = Object.values(GameState.solved).filter(Boolean).length;
+                M.setIntensity((1 - t / TOTAL_TIME) * 0.55 + GameState.strikes * 0.2 - solved * 0.04 + (t <= 30 ? 0.25 : 0));
+                if (M.current !== 'game') M.play('game');
+            }
+        };
+
+        /**
+         * ============================================================================
+         * MENÚ PRINCIPAL
+         * ----------------------------------------------------------------------------
+         * Pantalla de inicio ("presiona cualquier tecla", que además habilita el audio)
+         * y menú con la nave en órbita de fondo. Teclado: ↑ ↓ Enter.
+         * ============================================================================
+         */
+        const MainMenu = {
+            el: null,
+            unlocked: false,
+            busy: false,
+            sel: 0,
+
+            init() {
+                this.el = document.getElementById('mainMenu');
+                const splash = document.getElementById('menuSplash');
+                splash.addEventListener('pointerdown', () => this.unlock());
+                window.addEventListener('keydown', (e) => this.onKey(e));
+
+                const vol = window.AetherMusic ? AetherMusic.volume : { music: 0.7, sfx: 0.85 };
+                const vm = document.getElementById('volMusic');
+                const vs = document.getElementById('volSfx');
+                vm.value = Math.round(vol.music * 100);
+                vs.value = Math.round(vol.sfx * 100);
+                vm.oninput = () => window.AetherMusic && AetherMusic.setVolume('music', vm.value / 100);
+                vs.oninput = () => window.AetherMusic && AetherMusic.setVolume('sfx', vs.value / 100);
+
+                this.items().forEach((btn, i) => {
+                    btn.addEventListener('mouseenter', () => this.select(i));
+                    btn.addEventListener('click', () => this.activate(btn.dataset.act));
+                });
+                document.getElementById('toMenuBtn').onclick = () => this.show();
+                this.show();
+            },
+
+            items() {
+                return [...document.querySelectorAll('#menuItems .item')];
+            },
+
+            select(i, sound = true) {
+                const items = this.items();
+                this.sel = (i + items.length) % items.length;
+                items.forEach((b, k) => b.classList.toggle('sel', k === this.sel));
+                if (sound && window.AetherMusic) AetherMusic.sfx.hover();
+            },
+
+            show() {
+                this.busy = false;
+                document.body.classList.add('menu-open');
+                document.getElementById('endGameModal').classList.add('hidden');
+                document.getElementById('endGameModal').classList.remove('flex');
+                if (window.AetherVoice) AetherVoice.stopAll();
+                this.el.classList.add('open');
+                const cinema = window.AetherCinema;
+                if (cinema && cinema.available) {
+                    try {
+                        cinema.showMenu();
+                    } catch (e) {
+                        console.warn('[menú]', e);
+                        this.el.classList.add('fallback');
+                    }
+                } else {
+                    this.el.classList.add('fallback');
+                }
+                document.getElementById('menuModeVal').textContent = ViewMode.mode.toUpperCase();
+                this.select(0, false);
+                if (this.unlocked) {
+                    this.el.classList.add('ready');
+                    if (window.AetherMusic) AetherMusic.play('menu', { fade: 3 });
+                }
+            },
+
+            unlock() {
+                if (this.unlocked) return;
+                this.unlocked = true;
+                AudioEngine.init();
+                if (window.AetherMusic) {
+                    AetherMusic.unlock();
+                    AetherMusic.play('menu', { fade: 4 });
+                    AetherMusic.sfx.select();
+                }
+                document.getElementById('menuSplash').classList.add('gone');
+                this.el.classList.add('ready');
+            },
+
+            onKey(e) {
+                if (!this.el.classList.contains('open') || e.target.closest('input, textarea')) return;
+                if (!this.unlocked) {
+                    e.preventDefault();
+                    this.unlock();
+                    return;
+                }
+                if (e.key === 'ArrowDown' || e.key === 's' || e.key === 'S') {
+                    e.preventDefault();
+                    this.select(this.sel + 1);
+                } else if (e.key === 'ArrowUp' || e.key === 'w' || e.key === 'W') {
+                    e.preventDefault();
+                    this.select(this.sel - 1);
+                } else if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault();
+                    this.activate(this.items()[this.sel].dataset.act);
+                }
+                e.stopPropagation();
+            },
+
+            activate(act) {
+                if (this.busy) return;
+                if (window.AetherMusic) AetherMusic.sfx.select();
+                if (act === 'start') return this.start();
+                if (act === 'mode') {
+                    ViewMode.set(ViewMode.mode === '3d' ? '2d' : '3d');
+                    document.getElementById('menuModeVal').textContent = ViewMode.mode.toUpperCase();
+                    return;
+                }
+                const panel = document.getElementById(act === 'settings' ? 'menuSettings' : 'menuCredits');
+                const wasOpen = panel.classList.contains('open');
+                document.querySelectorAll('#mainMenu .sub').forEach((s) => s.classList.remove('open'));
+                panel.classList.toggle('open', !wasOpen);
+            },
+
+            start() {
+                this.busy = true;
+                const begin = () => {
+                    initGame();
+                    this.el.classList.remove('open', 'ready', 'fallback');
+                    this.busy = false;
+                };
+                const cinema = window.AetherCinema;
+                if (window.AetherMusic) AetherMusic.stop(1.2);
+                if (cinema && cinema.available) cinema.startMission().then(begin, begin);
+                else begin();
+            }
+        };
+
+        function initGame() {
+            isExploded = false;
+            GameState.timeLeft = TOTAL_TIME;
+            GameState.strikes = 0;
+            GameState.isOver = false;
+            GameState.victory = false;
+            Telemetry.reactorBase = 600;
+            GameState.reactorTemp = 600;
+            GameState.buttonPressedHot = false;
+
+            // [FIX] Limpiar el estado del botón si se reinicia mientras se mantiene pulsado
+            clearTimeout(GameState.buttonHoldTimer);
+            GameState.isHoldingButton = false;
+            GameState.solved = { wires: false, button: false, simon: false, keypad: false };
+
+            // Cerrar la cinemática / fondo final y arrancar la música de la partida
+            if (window.AetherCinema && AetherCinema.hide) AetherCinema.hide();
+            if (window.AetherMusic) {
+                AetherMusic.setIntensity(0);
+                AetherMusic.play('game', { fade: 1.5 });
+            }
+
+            // Resetear UI
+            document.getElementById('endGameModal').classList.add('hidden');
+            document.getElementById('endGameModal').classList.remove('flex');
+            document.getElementById('modulesProgress').textContent = 'MÓDULOS DESACTIVADOS: 0 / 4';
+            document.getElementById('statusSubtitle').textContent = 'ALERTA: FALLO CRÍTICO EN EL REACTOR DE ANTIMATERIA';
+            document.getElementById('statusSubtitle').className = 'text-[11px] text-red-400 mt-0.5';
+            document.getElementById('hullStatusDot').className = 'w-3 h-3 rounded-full bg-red-500 alarm-flash';
+
+            ['strike1', 'strike2', 'strike3'].forEach(id => {
+                const el = document.getElementById(id);
+                el.className = 'w-3.5 h-3.5 rounded-sm bg-black border border-zinc-700 flex items-center justify-center text-[10px] font-black text-transparent';
+            });
+
+            ['ledWires', 'ledButton', 'ledSimon', 'ledKeypad'].forEach(id => {
+                const led = document.getElementById(id);
+                led.className = 'w-3 h-3 rounded-full bg-zinc-900 border border-zinc-600 shadow-inner';
+            });
+
+            generateShipMetadata();
+            setupWiresModule();
+            setupButtonModule();
+            setupSimonModule();
+            setupKeypadModule();
+            startTimer();
+            Announcer.newGame();
+            Telemetry.event('NUEVA MISIÓN INICIADA');
+            Telemetry.sample(); // que la nueva polaridad aparezca en Open MCT de inmediato
+            ViewMode.onNewGame();
+            // Revelar la cabina solo cuando los cuatro módulos y la vista ya están listos.
+            document.body.classList.remove('menu-open');
+        }
+
+        // Eventos de botones de interfaz
+        document.getElementById('resetConsoleBtn').onclick = initGame;
+        document.getElementById('playAgainBtn').onclick = initGame;
+
+        // Arrancar juego al cargar
+        window.onload = () => {
+            Telemetry.init();
+            Chat.init();
+            RadioUI.init();
+            ViewMode.init();
+            if (window.AetherVoice) {
+                AetherVoice.init(() => { AudioEngine.init(); return AudioEngine.ctx; });
+                document.getElementById('voiceToggle').onclick = () => AetherVoice.setEnabled(!AetherVoice.enabled);
+            }
+            if (window.AetherMusic) AetherMusic.init(() => { AudioEngine.init(); return AudioEngine.ctx; });
+            // La partida empieza desde el menú principal (MainMenu.start -> initGame)
+            MainMenu.init();
+        };
+    </script>
+</body>
+</html>
