@@ -1,7 +1,7 @@
 {
   "name": "aether-openmct",
   "version": "1.0.0",
-  "description": "Protocolo Órbita Crítica: tablero de reparación + control en tierra con NASA Open MCT",
+  "description": "HOUSTON, WE HAVE A PROBLEM: tablero de reparación + control en tierra con NASA Open MCT",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",

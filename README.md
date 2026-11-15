@@ -1,4 +1,4 @@
-# Protocolo Órbita Crítica — U.S.S. Aether + NASA Open MCT (Houston, We've a Problem)
+# HOUSTON, WE HAVE A PROBLEM — U.S.S. Aether + NASA Open MCT
 
 Desarrollado por:
 

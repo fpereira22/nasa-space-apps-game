@@ -1,5 +1,5 @@
 /**
- * Servidor de telemetría — Protocolo Órbita Crítica / U.S.S. Aether
+ * Servidor de telemetría — HOUSTON, WE HAVE A PROBLEM / U.S.S. Aether
  *
  *  Tablero (astronauta) ──ws /game──▶ server.js ──ws /realtime──▶ Open MCT (control en tierra)
  *                                         └── GET /history/:id ──▶ Open MCT (datos históricos)
